@@ -181,3 +181,41 @@ spec:
   - '*'
   providerConfigRef:
     name: default-sql-postgres-provider-config
+
+---
+# 3. Grant schema usage to app user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-schema-usage
+spec:
+  forProvider:
+    privileges:
+      - USAGE
+    roleRef:
+      name: event_service_app_user
+    schemaRef:
+      name: public
+    databaseRef:
+      name: event_service
+---
+# 4. Grant table privileges to app user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-table-privileges
+spec:
+  forProvider:
+    privileges:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - REFERENCES
+    roleRef:
+      name: event_service_app_user
+    schemaRef:
+      name: public
+    databaseRef:
+      name: event_service
+    onTables: true

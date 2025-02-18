@@ -1,0 +1,24 @@
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: ProviderConfig
+metadata:
+  name: default-sql-postgres-provider-config
+spec:
+  credentials:
+    source: PostgresqlConnection
+    postgresql:
+      auth:
+        username:
+          name: postgres-creds
+          key: username
+        password:
+          name: postgres-creds
+          key: password
+      host:
+        name: postgres-creds
+        key: host
+      port:
+        name: postgres-creds
+        key: port
+      database:
+        name: postgres-creds
+        key: database

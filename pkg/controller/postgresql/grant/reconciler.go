@@ -32,9 +32,9 @@ import (
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	xpcontroller "github.com/crossplane/crossplane-runtime/pkg/controller"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
+	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
-	"github.com/crossplane/crossplane-runtime/pkg/logging"
 
 	"github.com/crossplane-contrib/provider-sql/apis/postgresql/v1alpha1"
 	"github.com/crossplane-contrib/provider-sql/pkg/clients"
@@ -66,75 +66,77 @@ const (
 
 // Setup adds a controller that reconciles Grant managed resources.
 func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
-    name := managed.ControllerName(v1alpha1.GrantGroupKind)
+	name := managed.ControllerName(v1alpha1.GrantGroupKind)
 
-    t := resource.NewProviderConfigUsageTracker(mgr.GetClient(), &v1alpha1.ProviderConfigUsage{})
-    r := managed.NewReconciler(mgr,
-        resource.ManagedKind(v1alpha1.GrantGroupVersionKind),
-        managed.WithExternalConnecter(&connector{
-            kube:   mgr.GetClient(),
-            usage:  t,
-            logger: o.Logger.WithValues("controller", name), // Pass the logger here
-            newDB:  postgresql.New,
-        }),
-        managed.WithLogger(o.Logger.WithValues("controller", name)),
-        managed.WithPollInterval(o.PollInterval),
-        managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))))
+	t := resource.NewProviderConfigUsageTracker(mgr.GetClient(), &v1alpha1.ProviderConfigUsage{})
+	r := managed.NewReconciler(mgr,
+		resource.ManagedKind(v1alpha1.GrantGroupVersionKind),
+		managed.WithExternalConnecter(&connector{
+			kube: mgr.GetClient(), 
+			usage: t,
+			logger: o.Logger,
+			newDB: postgresql.New,
+		}),
+		managed.WithLogger(o.Logger.WithValues("controller", name)),
+		managed.WithPollInterval(o.PollInterval),
+		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))))
 
-    return ctrl.NewControllerManagedBy(mgr).
-        Named(name).
-        For(&v1alpha1.Grant{}).
-        WithOptions(controller.Options{
-            MaxConcurrentReconciles: maxConcurrency,
-        }).
-        Complete(r)
+	return ctrl.NewControllerManagedBy(mgr).
+		Named(name).
+		For(&v1alpha1.Grant{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: maxConcurrency,
+		}).
+		Complete(r)
 }
 
 type connector struct {
 	kube   client.Client
 	usage  resource.Tracker
-	logger logging.Logger  // Change back to logging.Logger
+	logger logging.Logger
 	newDB  func(creds map[string][]byte, database string, sslmode string) xsql.DB
 }
 
-// In the Connect method of the connector struct, modify it to include logger initialization:
 func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.ExternalClient, error) {
-    cr, ok := mg.(*v1alpha1.Grant)
-    if !ok {
-        return nil, errors.New(errNotGrant)
-    }
+	cr, ok := mg.(*v1alpha1.Grant)
+	if !ok {
+		return nil, errors.New(errNotGrant)
+	}
 
-    if err := c.usage.Track(ctx, mg); err != nil {
-        return nil, errors.Wrap(err, errTrackPCUsage)
-    }
+	if err := c.usage.Track(ctx, mg); err != nil {
+		return nil, errors.Wrap(err, errTrackPCUsage)
+	}
 
-    pc := &v1alpha1.ProviderConfig{}
-    if err := c.kube.Get(ctx, types.NamespacedName{Name: cr.GetProviderConfigReference().Name}, pc); err != nil {
-        return nil, errors.Wrap(err, errGetPC)
-    }
+	// ProviderConfigReference could theoretically be nil, but in practice the
+	// DefaultProviderConfig initializer will set it before we get here.
+	pc := &v1alpha1.ProviderConfig{}
+	if err := c.kube.Get(ctx, types.NamespacedName{Name: cr.GetProviderConfigReference().Name}, pc); err != nil {
+		return nil, errors.Wrap(err, errGetPC)
+	}
 
-    ref := pc.Spec.Credentials.ConnectionSecretRef
-    if ref == nil {
-        return nil, errors.New(errNoSecretRef)
-    }
+	// We don't need to check the credentials source because we currently only
+	// support one source (PostgreSQLConnectionSecret), which is required and
+	// enforced by the ProviderConfig schema.
+	ref := pc.Spec.Credentials.ConnectionSecretRef
+	if ref == nil {
+		return nil, errors.New(errNoSecretRef)
+	}
 
-    s := &corev1.Secret{}
-    if err := c.kube.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, s); err != nil {
-        return nil, errors.Wrap(err, errGetSecret)
-    }
-
-    // Initialize the external struct with the logger
-    return &external{
-        db:     c.newDB(s.Data, pc.Spec.DefaultDatabase, clients.ToString(pc.Spec.SSLMode)),
-        kube:   c.kube,
-        logger: logging.NewNopLogger(), // Use a NopLogger if c.logger is nil
-    }, nil
+	s := &corev1.Secret{}
+	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, s); err != nil {
+		return nil, errors.Wrap(err, errGetSecret)
+	}
+	return &external{
+		db:     c.newDB(s.Data, pc.Spec.DefaultDatabase, clients.ToString(pc.Spec.SSLMode)),
+		kube:   c.kube,
+		logger: c.logger, // Pass logger from connector
+	}, nil
 }
 
 type external struct {
 	db     xsql.DB
 	kube   client.Client
-	logger logging.Logger  // Change back to logging.Logger
+	logger logging.Logger // Add logger field
 }
 
 type grantType string
@@ -175,11 +177,6 @@ func identifyGrantType(gp v1alpha1.GrantParameters) (grantType, error) {
 		return roleLargeObjects, nil
 	}
 	
-	// Add check for schema privileges
-	if gp.Schema != nil {
-		return roleSchema, nil
-	}
-
 	// Default database grant handling
 	if gp.Database == nil {
 		return "", errors.New(errNoDatabase)
@@ -305,25 +302,6 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			gp.LargeObjectOwner,
 			gp.Role,
 			pq.Array(gp.Privileges.ToStringSlice()),
-		}
-		return nil
-	case roleSchema:
-		q.String = `
-			SELECT EXISTS (
-				SELECT 1
-				FROM pg_namespace n
-				JOIN pg_roles r ON r.oid = n.nspowner  
-				WHERE n.nspname = $1
-				AND EXISTS (
-					SELECT 1 FROM information_schema.role_usage_grants
-					WHERE grantee = $2 
-					AND object_schema = $1
-				)
-			)`
-		
-		q.Parameters = []interface{}{
-			gp.Schema,
-			gp.Role,
 		}
 		return nil
 	}
@@ -475,28 +453,6 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
             )},
         )
         return nil
-	case roleSchema:
-		if gp.Schema == nil || gp.Role == nil || len(gp.Privileges) < 1 {
-			return errors.Errorf(errInvalidParams, roleSchema)
-		}
-
-		schema := pq.QuoteIdentifier(*gp.Schema)
-		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
-
-		*ql = append(*ql,
-			xsql.Query{String: fmt.Sprintf("REVOKE %s ON SCHEMA %s FROM %s",
-				sp,
-				schema,
-				ro,
-			)},
-			xsql.Query{String: fmt.Sprintf("GRANT %s ON SCHEMA %s TO %s %s",
-				sp,
-				schema,
-				ro,
-				withOption(gp.WithOption),
-			)},
-		)
-		return nil
 	}
 	return errors.New(errUnknownGrant)
 }
@@ -526,7 +482,7 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 	case roleTables, roleSequences, roleFunctions:
 		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
 		schema := pq.QuoteIdentifier(*gp.Schema)
-
+		
 		var objType string
 		switch gt {
 		case roleTables:
@@ -536,33 +492,11 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 		case roleFunctions:
 			objType = "FUNCTIONS"
 		}
-
+		
 		q.String = fmt.Sprintf("REVOKE %s ON ALL %s IN SCHEMA %s FROM %s",
 			sp,
 			objType,
 			schema,
-			ro,
-		)
-		return nil
-	case roleLargeObjects:
-		q.String = fmt.Sprintf(
-			"DO $$ DECLARE r record; "+
-				"BEGIN "+
-				"FOR r IN SELECT DISTINCT(pglm.oid) as oid FROM pg_largeobject_metadata pglm "+
-				"INNER JOIN pg_authid pga ON pglm.lomowner = pga.oid "+
-				"WHERE pga.rolname = '%s' "+
-				"LOOP "+
-				"EXECUTE 'REVOKE %s ON LARGE OBJECT ' || r.oid || ' FROM %s'; "+
-				"END LOOP; END $$;",
-			*gp.LargeObjectOwner,
-			strings.Join(gp.Privileges.ToStringSlice(), ","),
-			ro,
-		)
-		return nil
-	case roleSchema:
-		q.String = fmt.Sprintf("REVOKE %s ON SCHEMA %s FROM %s",
-			strings.Join(gp.Privileges.ToStringSlice(), ","),
-			pq.QuoteIdentifier(*gp.Schema),
 			ro,
 		)
 		return nil
@@ -572,7 +506,7 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
 	cr, ok := mg.(*v1alpha1.Grant)
-	if !ok {
+	if (!ok) {
 		return managed.ExternalObservation{}, errors.New(errNotGrant)
 	}
 
@@ -583,20 +517,17 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	gp := cr.Spec.ForProvider
 	var query xsql.Query
 	if err := selectGrantQuery(gp, &query); err != nil {
-		c.logger.Debug("Failed to build select query", err)
 		return managed.ExternalObservation{}, err
 	}
 
 	// Add debug logging for query
-	c.logger.Debug("Executing SQL query", "query", query.String, "parameters", query.Parameters)
+	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
 
 	exists := false
+
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
-		c.logger.Debug("Failed to scan grant", "error", err, "role", *gp.Role, "privileges", gp.Privileges.ToStringSlice())
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
-
-	c.logger.Debug("Grant existence check", "exists", exists, "role", *gp.Role, "privileges", gp.Privileges.ToStringSlice())
 
 	if !exists {
 		return managed.ExternalObservation{ResourceExists: false}, nil
@@ -618,26 +549,21 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.New(errNotGrant)
 	}
 
+	var queries []xsql.Query
+
 	cr.SetConditions(xpv1.Creating())
 
-	var queries []xsql.Query
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
-		c.logger.Debug("Failed to create grant queries", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
-	// Debug log all queries before execution
+	// Add debug logging for queries
 	for _, q := range queries {
-		c.logger.Debug("Executing SQL query", "query", q.String, "parameters", q.Parameters)
+		c.logger.Debug("Executing SQL", "query", q.String, "parameters", q.Parameters)
 	}
 
 	err := c.db.ExecTx(ctx, queries)
-	if err != nil {
-		c.logger.Debug("Failed to execute grant queries", "error", err)
-		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
-	}
-
-	return managed.ExternalCreation{}, nil
+	return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 }
 
 func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
@@ -648,25 +574,20 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	cr, ok := mg.(*v1alpha1.Grant)
-	if !ok {
+	if (!ok) {
 		return errors.New(errNotGrant)
 	}
+	var query xsql.Query
 
 	cr.SetConditions(xpv1.Deleting())
 
-	var query xsql.Query
 	err := deleteGrantQuery(cr.Spec.ForProvider, &query)
 	if err != nil {
-		c.logger.Debug("Failed to build delete query", "error", err)
 		return errors.Wrap(err, errRevokeGrant)
 	}
 
 	// Add debug logging for query
-	c.logger.Debug("Executing SQL query", "query", query.String, "parameters", query.Parameters)
+	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
 
-	if err := c.db.Exec(ctx, query); err != nil {
-		c.logger.Debug("Failed to execute delete query", "error", err)
-		return errors.Wrap(err, errRevokeGrant)
-	}
-	return nil
+	return errors.Wrap(c.db.Exec(ctx, query), errRevokeGrant)
 }

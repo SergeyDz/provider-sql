@@ -66,27 +66,28 @@ const (
 
 // Setup adds a controller that reconciles Grant managed resources.
 func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
-	name := managed.ControllerName(v1alpha1.GrantGroupKind)
+    name := managed.ControllerName(v1alpha1.GrantGroupKind)
 
-	t := resource.NewProviderConfigUsageTracker(mgr.GetClient(), &v1alpha1.ProviderConfigUsage{})
-	r := managed.NewReconciler(mgr,
-		resource.ManagedKind(v1alpha1.GrantGroupVersionKind),
-		managed.WithExternalConnecter(&connector{
-			kube: mgr.GetClient(), 
-			usage: t,
-			newDB: postgresql.New,
-		}),
-		managed.WithLogger(o.Logger.WithValues("controller", name)),
-		managed.WithPollInterval(o.PollInterval),
-		managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))))
+    t := resource.NewProviderConfigUsageTracker(mgr.GetClient(), &v1alpha1.ProviderConfigUsage{})
+    r := managed.NewReconciler(mgr,
+        resource.ManagedKind(v1alpha1.GrantGroupVersionKind),
+        managed.WithExternalConnecter(&connector{
+            kube:   mgr.GetClient(),
+            usage:  t,
+            logger: o.Logger.WithValues("controller", name), // Pass the logger here
+            newDB:  postgresql.New,
+        }),
+        managed.WithLogger(o.Logger.WithValues("controller", name)),
+        managed.WithPollInterval(o.PollInterval),
+        managed.WithRecorder(event.NewAPIRecorder(mgr.GetEventRecorderFor(name))))
 
-	return ctrl.NewControllerManagedBy(mgr).
-		Named(name).
-		For(&v1alpha1.Grant{}).
-		WithOptions(controller.Options{
-			MaxConcurrentReconciles: maxConcurrency,
-		}).
-		Complete(r)
+    return ctrl.NewControllerManagedBy(mgr).
+        Named(name).
+        For(&v1alpha1.Grant{}).
+        WithOptions(controller.Options{
+            MaxConcurrentReconciles: maxConcurrency,
+        }).
+        Complete(r)
 }
 
 type connector struct {
@@ -96,40 +97,38 @@ type connector struct {
 	newDB  func(creds map[string][]byte, database string, sslmode string) xsql.DB
 }
 
+// In the Connect method of the connector struct, modify it to include logger initialization:
 func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.ExternalClient, error) {
-	cr, ok := mg.(*v1alpha1.Grant)
-	if !ok {
-		return nil, errors.New(errNotGrant)
-	}
+    cr, ok := mg.(*v1alpha1.Grant)
+    if !ok {
+        return nil, errors.New(errNotGrant)
+    }
 
-	if err := c.usage.Track(ctx, mg); err != nil {
-		return nil, errors.Wrap(err, errTrackPCUsage)
-	}
+    if err := c.usage.Track(ctx, mg); err != nil {
+        return nil, errors.Wrap(err, errTrackPCUsage)
+    }
 
-	// ProviderConfigReference could theoretically be nil, but in practice the
-	// DefaultProviderConfig initializer will set it before we get here.
-	pc := &v1alpha1.ProviderConfig{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Name: cr.GetProviderConfigReference().Name}, pc); err != nil {
-		return nil, errors.Wrap(err, errGetPC)
-	}
+    pc := &v1alpha1.ProviderConfig{}
+    if err := c.kube.Get(ctx, types.NamespacedName{Name: cr.GetProviderConfigReference().Name}, pc); err != nil {
+        return nil, errors.Wrap(err, errGetPC)
+    }
 
-	// We don't need to check the credentials source because we currently only
-	// support one source (PostgreSQLConnectionSecret), which is required and
-	// enforced by the ProviderConfig schema.
-	ref := pc.Spec.Credentials.ConnectionSecretRef
-	if ref == nil {
-		return nil, errors.New(errNoSecretRef)
-	}
+    ref := pc.Spec.Credentials.ConnectionSecretRef
+    if ref == nil {
+        return nil, errors.New(errNoSecretRef)
+    }
 
-	s := &corev1.Secret{}
-	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, s); err != nil {
-		return nil, errors.Wrap(err, errGetSecret)
-	}
-	return &external{
-		db:     c.newDB(s.Data, pc.Spec.DefaultDatabase, clients.ToString(pc.Spec.SSLMode)),
-		kube:   c.kube,
-		logger: c.logger, // Pass logger from connector
-	}, nil
+    s := &corev1.Secret{}
+    if err := c.kube.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, s); err != nil {
+        return nil, errors.Wrap(err, errGetSecret)
+    }
+
+    // Initialize the external struct with the logger
+    return &external{
+        db:     c.newDB(s.Data, pc.Spec.DefaultDatabase, clients.ToString(pc.Spec.SSLMode)),
+        kube:   c.kube,
+        logger: logging.NewNopLogger(), // Use a NopLogger if c.logger is nil
+    }, nil
 }
 
 type external struct {

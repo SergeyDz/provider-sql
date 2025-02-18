@@ -40,6 +40,7 @@ import (
 	"github.com/crossplane-contrib/provider-sql/pkg/clients/postgresql"
 	"github.com/crossplane-contrib/provider-sql/pkg/clients/xsql"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -68,8 +69,10 @@ const (
 func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
 	name := managed.ControllerName(v1alpha1.GrantGroupKind)
 
-	// Convert the logger to zap logger
-	zaplog, err := zap.NewDevelopment()
+	// Configure zap logger with custom time encoder
+	logConfig := zap.NewDevelopmentConfig()
+	logConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z")
+	zaplog, err := logConfig.Build()
 	if err != nil {
 		return err
 	}

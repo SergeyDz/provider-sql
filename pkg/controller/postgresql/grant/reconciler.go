@@ -264,23 +264,25 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 				objType = "f"  // function
 		}
 
-		// Check if all requested privileges exist on all objects of the specified type
+		 // Modified query to handle cases with no objects
 		q.String = `
-			SELECT EXISTS (
-				SELECT 1 FROM (
-					SELECT cls.oid, cls.relnamespace, 
-						array_agg(privilege_type ORDER BY privilege_type) as privileges
-					FROM pg_class cls
-					JOIN pg_namespace ns ON cls.relnamespace = ns.oid
-					JOIN aclexplode(cls.relacl) acl ON true
-					JOIN pg_roles r ON acl.grantee = r.oid
-					WHERE ns.nspname = $1
-					AND r.rolname = $2
-					AND cls.relkind = $3
-					GROUP BY cls.oid, cls.relnamespace
-				) AS grants
-				WHERE privileges @> $4::text[]
-			)`
+			WITH object_permissions AS (
+				SELECT cls.oid,
+					COALESCE(array_agg(acl.privilege_type ORDER BY acl.privilege_type), ARRAY[]::text[]) as privileges
+				FROM pg_class cls
+				JOIN pg_namespace ns ON cls.relnamespace = ns.oid
+				LEFT JOIN aclexplode(cls.relacl) acl ON true
+				LEFT JOIN pg_roles r ON acl.grantee = r.oid AND r.rolname = $2
+				WHERE ns.nspname = $1
+				AND cls.relkind = $3
+				GROUP BY cls.oid
+			)
+			SELECT CASE 
+				WHEN COUNT(*) = 0 THEN true -- No objects exist, consider it synchronized
+				WHEN COUNT(*) = COUNT(CASE WHEN privileges @> $4::text[] THEN 1 END) THEN true -- All objects have required permissions
+				ELSE false -- Some objects exist but don't have required permissions
+			END
+			FROM object_permissions`
 
 		q.Parameters = []interface{}{
 			gp.Schema,
@@ -291,19 +293,22 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 		return nil
 	case roleLargeObjects:
 		q.String = `
-			SELECT EXISTS (
-				SELECT 1 FROM pg_largeobject_metadata pglm 
+			WITH object_permissions AS (
+				SELECT pglm.oid,
+					COALESCE(array_agg(acl.privilege_type ORDER BY acl.privilege_type), ARRAY[]::text[]) as privileges
+				FROM pg_largeobject_metadata pglm 
 				INNER JOIN pg_authid pga ON pglm.lomowner = pga.oid
+				LEFT JOIN aclexplode(pglm.lomacl) acl ON true
+				LEFT JOIN pg_roles r ON acl.grantee = r.oid AND r.rolname = $2
 				WHERE pga.rolname = $1
-				AND EXISTS (
-					SELECT 1 FROM pg_largeobject_metadata lo
-					JOIN aclexplode(lo.lomacl) acl ON true
-					JOIN pg_roles r ON acl.grantee = r.oid
-					WHERE lo.oid = pglm.oid
-					AND r.rolname = $2
-					AND array_agg(acl.privilege_type ORDER BY privilege_type) @> $3::text[]
-				)
-			)`
+				GROUP BY pglm.oid
+			)
+			SELECT CASE 
+				WHEN COUNT(*) = 0 THEN true -- No large objects exist, consider it synchronized
+				WHEN COUNT(*) = COUNT(CASE WHEN privileges @> $3::text[] THEN 1 END) THEN true -- All objects have required permissions
+				ELSE false -- Some objects exist but don't have required permissions
+			END
+			FROM object_permissions`
 
 		q.Parameters = []interface{}{
 			gp.LargeObjectOwner,

@@ -45,16 +45,30 @@ user_privileges AS (
         
         UNION ALL
         
-        -- Schema privileges
+        -- Schema privileges (enhanced version)
         SELECT 
             grantee,
             'SCHEMA' as object_type,
-            object_schema as object_name,
-            array_agg(DISTINCT privilege_type) as privileges
-        FROM information_schema.role_usage_grants
-        WHERE object_catalog = current_database()
-        AND object_type = 'SCHEMA'
-        GROUP BY grantee, object_schema
+            table_schema as object_name,
+            array_agg(DISTINCT 
+                CASE 
+                    WHEN privilege_type = 'INSERT' THEN 'USAGE'
+                    WHEN privilege_type = 'USAGE' THEN 'USAGE'
+                    WHEN privilege_type = 'SELECT' THEN 'USAGE'
+                    ELSE privilege_type
+                END
+            ) as privileges
+        FROM (
+            SELECT DISTINCT grantee, table_schema, privilege_type
+            FROM information_schema.role_table_grants
+            WHERE table_catalog = current_database()
+            UNION
+            SELECT DISTINCT grantee, object_schema, privilege_type
+            FROM information_schema.role_usage_grants
+            WHERE object_catalog = current_database()
+            AND object_type = 'SCHEMA'
+        ) combined_schema_privs
+        GROUP BY grantee, table_schema
         
         UNION ALL
         

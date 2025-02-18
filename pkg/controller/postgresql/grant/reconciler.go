@@ -126,10 +126,17 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 	if err := c.kube.Get(ctx, types.NamespacedName{Namespace: ref.Namespace, Name: ref.Name}, s); err != nil {
 		return nil, errors.Wrap(err, errGetSecret)
 	}
+
+	// Use the target database from the Grant spec if available, otherwise use the default
+	targetDB := pc.Spec.DefaultDatabase
+	if cr.Spec.ForProvider.Database != nil {
+		targetDB = *cr.Spec.ForProvider.Database
+	}
+
 	return &external{
-		db:     c.newDB(s.Data, pc.Spec.DefaultDatabase, clients.ToString(pc.Spec.SSLMode)),
+		db:     c.newDB(s.Data, targetDB, clients.ToString(pc.Spec.SSLMode)),
 		kube:   c.kube,
-		logger: c.logger, // Pass logger from connector
+		logger: c.logger,
 	}, nil
 }
 
@@ -515,6 +522,17 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.New(errNoRole)
 	}
 
+	// Switch to the correct database if specified
+	if cr.Spec.ForProvider.Database != nil {
+		if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
+			return managed.ExternalObservation{}, errors.Wrap(err, "failed to reset search_path")
+		}
+		switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
+		if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {
+			return managed.ExternalObservation{}, errors.Wrap(err, "failed to reset session")
+		}
+	}
+
 	gp := cr.Spec.ForProvider
 	var query xsql.Query
 	if err := selectGrantQuery(gp, &query); err != nil {
@@ -552,6 +570,17 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	cr, ok := mg.(*v1alpha1.Grant)
 	if !ok {
 		return managed.ExternalCreation{}, errors.New(errNotGrant)
+	}
+
+	// Switch to the correct database if specified
+	if cr.Spec.ForProvider.Database != nil {
+		if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
+			return managed.ExternalCreation{}, errors.Wrap(err, "failed to reset search_path")
+		}
+		switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
+		if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {
+			return managed.ExternalCreation{}, errors.Wrap(err, "failed to reset session")
+		}
 	}
 
 	var queries []xsql.Query
@@ -608,7 +637,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 
 func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
     _, ok := mg.(*v1alpha1.Grant)
-    if !ok {
+    if (!ok) {
         return managed.ExternalUpdate{}, errors.New(errNotGrant)
     }
 

@@ -34,13 +34,12 @@ import (
 	"github.com/crossplane/crossplane-runtime/pkg/event"
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
+	"github.com/crossplane/crossplane-runtime/pkg/logging"
 
 	"github.com/crossplane-contrib/provider-sql/apis/postgresql/v1alpha1"
 	"github.com/crossplane-contrib/provider-sql/pkg/clients"
 	"github.com/crossplane-contrib/provider-sql/pkg/clients/postgresql"
 	"github.com/crossplane-contrib/provider-sql/pkg/clients/xsql"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 const (
@@ -69,24 +68,12 @@ const (
 func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
 	name := managed.ControllerName(v1alpha1.GrantGroupKind)
 
-	// Configure zap logger with custom time encoder and minimum level
-	logConfig := zap.NewDevelopmentConfig()
-	logConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z")
-	logConfig.Level = zap.NewAtomicLevelAt(zapcore.ErrorLevel) // Ensure ERROR level is enabled
-	zaplog, err := logConfig.Build(
-		zap.AddStacktrace(zapcore.ErrorLevel), // Add stack traces for errors
-	)
-	if err != nil {
-		return err
-	}
-
 	t := resource.NewProviderConfigUsageTracker(mgr.GetClient(), &v1alpha1.ProviderConfigUsage{})
 	r := managed.NewReconciler(mgr,
 		resource.ManagedKind(v1alpha1.GrantGroupVersionKind),
 		managed.WithExternalConnecter(&connector{
 			kube: mgr.GetClient(), 
 			usage: t,
-			logger: zaplog,
 			newDB: postgresql.New,
 		}),
 		managed.WithLogger(o.Logger.WithValues("controller", name)),
@@ -105,7 +92,7 @@ func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
 type connector struct {
 	kube   client.Client
 	usage  resource.Tracker
-	logger *zap.Logger  // Change to zap.Logger
+	logger logging.Logger  // Change back to logging.Logger
 	newDB  func(creds map[string][]byte, database string, sslmode string) xsql.DB
 }
 
@@ -148,7 +135,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 type external struct {
 	db     xsql.DB
 	kube   client.Client
-	logger *zap.Logger  // Change to zap.Logger
+	logger logging.Logger  // Change back to logging.Logger
 }
 
 type grantType string
@@ -597,28 +584,20 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	gp := cr.Spec.ForProvider
 	var query xsql.Query
 	if err := selectGrantQuery(gp, &query); err != nil {
-		c.logger.Error("Failed to build select query", zap.Error(err))
+		c.logger.Debug("Failed to build select query", err)
 		return managed.ExternalObservation{}, err
 	}
 
 	// Add debug logging for query
-	c.logger.Debug("Executing SQL query", zap.String("query", query.String), zap.Any("parameters", query.Parameters))
+	c.logger.Debug("Executing SQL query", "query", query.String, "parameters", query.Parameters)
 
 	exists := false
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
-		c.logger.Error("Failed to scan grant", 
-			zap.Error(err),
-			zap.String("role", *gp.Role),
-			zap.Strings("privileges", gp.Privileges.ToStringSlice()),
-		)
+		c.logger.Debug("Failed to scan grant", "error", err, "role", *gp.Role, "privileges", gp.Privileges.ToStringSlice())
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
 
-	c.logger.Info("Grant existence check", 
-		zap.Bool("exists", exists),
-		zap.String("role", *gp.Role),
-		zap.Strings("privileges", gp.Privileges.ToStringSlice()),
-	)
+	c.logger.Debug("Grant existence check", "exists", exists, "role", *gp.Role, "privileges", gp.Privileges.ToStringSlice())
 
 	if !exists {
 		return managed.ExternalObservation{ResourceExists: false}, nil
@@ -644,18 +623,18 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	var queries []xsql.Query
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
-		c.logger.Error("Failed to create grant queries", zap.Error(err))
+		c.logger.Debug("Failed to create grant queries", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
 	// Debug log all queries before execution
 	for _, q := range queries {
-		c.logger.Debug("Executing SQL query", zap.String("query", q.String), zap.Any("parameters", q.Parameters))
+		c.logger.Debug("Executing SQL query", "query", q.String, "parameters", q.Parameters)
 	}
 
 	err := c.db.ExecTx(ctx, queries)
 	if err != nil {
-		c.logger.Error("Failed to execute grant queries", zap.Error(err))
+		c.logger.Debug("Failed to execute grant queries", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
@@ -679,15 +658,15 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	var query xsql.Query
 	err := deleteGrantQuery(cr.Spec.ForProvider, &query)
 	if err != nil {
-		c.logger.Error("Failed to build delete query", zap.Error(err))
+		c.logger.Debug("Failed to build delete query", "error", err)
 		return errors.Wrap(err, errRevokeGrant)
 	}
 
 	// Add debug logging for query
-	c.logger.Debug("Executing SQL query", zap.String("query", query.String), zap.Any("parameters", query.Parameters))
+	c.logger.Debug("Executing SQL query", "query", query.String, "parameters", query.Parameters)
 
 	if err := c.db.Exec(ctx, query); err != nil {
-		c.logger.Error("Failed to execute delete query", zap.Error(err))
+		c.logger.Debug("Failed to execute delete query", "error", err)
 		return errors.Wrap(err, errRevokeGrant)
 	}
 	return nil

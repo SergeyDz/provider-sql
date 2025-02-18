@@ -206,22 +206,22 @@ spec:
 
 ---
 # 3. Grant schema usage to app user
-apiVersion: postgresql.sql.crossplane.io/v1alpha1
-kind: Grant
-metadata:
-  name: app-user-schema-usage
-spec:
-  providerConfigRef:
-    name: default-sql-postgres-provider-config
-  forProvider:
-    privileges:
-      - USAGE
-    roleRef:
-      name: event-service-app-user
-    schemaRef:
-      name: public-schema  # Changed to reference the Schema resource
-    databaseRef:
-      name: event-service
+# apiVersion: postgresql.sql.crossplane.io/v1alpha1
+# kind: Grant
+# metadata:
+#   name: app-user-schema-usage
+# spec:
+#   providerConfigRef:
+#     name: default-sql-postgres-provider-config
+#   forProvider:
+#     privileges:
+#       - USAGE
+#     roleRef:
+#       name: event-service-app-user
+#     schemaRef:
+#       name: public-schema  # Changed to reference the Schema resource
+#     databaseRef:
+#       name: event-service
 ---
 # 4. Grant table privileges to app user
 apiVersion: postgresql.sql.crossplane.io/v1alpha1

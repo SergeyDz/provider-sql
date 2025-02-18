@@ -69,10 +69,13 @@ const (
 func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
 	name := managed.ControllerName(v1alpha1.GrantGroupKind)
 
-	// Configure zap logger with custom time encoder
+	// Configure zap logger with custom time encoder and minimum level
 	logConfig := zap.NewDevelopmentConfig()
 	logConfig.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout("2006-01-02T15:04:05Z")
-	zaplog, err := logConfig.Build()
+	logConfig.Level = zap.NewAtomicLevelAt(zapcore.ErrorLevel) // Ensure ERROR level is enabled
+	zaplog, err := logConfig.Build(
+		zap.AddStacktrace(zapcore.ErrorLevel), // Add stack traces for errors
+	)
 	if err != nil {
 		return err
 	}

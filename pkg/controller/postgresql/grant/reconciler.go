@@ -517,23 +517,26 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	gp := cr.Spec.ForProvider
 	var query xsql.Query
 	if err := selectGrantQuery(gp, &query); err != nil {
+		c.logger.Debug("[OBSERVE] Failed to build query", "error", err)
 		return managed.ExternalObservation{}, err
 	}
 
-	// Add debug logging for query
-	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
+	// Log before execution
+	c.logger.Debug("[OBSERVE] Executing SQL", "query", query.String, "parameters", query.Parameters)
 
 	exists := false
-
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
+		c.logger.Debug("[OBSERVE] Failed to execute SQL", "error", err)
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
+
+	// Log successful execution
+	c.logger.Debug("[OBSERVE] Executed SQL OK")
 
 	if !exists {
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
-	// Grants have no way of being 'not up to date' - if they exist, they are up to date
 	cr.SetConditions(xpv1.Available())
 
 	return managed.ExternalObservation{
@@ -554,16 +557,24 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	cr.SetConditions(xpv1.Creating())
 
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
+		c.logger.Debug("[CREATE] Failed to build queries", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
-	// Add debug logging for queries
+	// Log before execution
 	for _, q := range queries {
-		c.logger.Debug("Executing SQL", "query", q.String, "parameters", q.Parameters)
+		c.logger.Debug("[CREATE] Executing SQL", "query", q.String, "parameters", q.Parameters)
 	}
 
-	err := c.db.ExecTx(ctx, queries)
-	return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
+	if err := c.db.ExecTx(ctx, queries); err != nil {
+		c.logger.Debug("[CREATE] Failed to execute SQL", "error", err)
+		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
+	}
+
+	// Log successful execution
+	c.logger.Debug("[CREATE] Executed SQL OK")
+
+	return managed.ExternalCreation{}, nil
 }
 
 func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
@@ -581,13 +592,21 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 
 	cr.SetConditions(xpv1.Deleting())
 
-	err := deleteGrantQuery(cr.Spec.ForProvider, &query)
-	if err != nil {
+	if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {
+		c.logger.Debug("[DELETE] Failed to build query", "error", err)
 		return errors.Wrap(err, errRevokeGrant)
 	}
 
-	// Add debug logging for query
-	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
+	// Log before execution
+	c.logger.Debug("[DELETE] Executing SQL", "query", query.String, "parameters", query.Parameters)
 
-	return errors.Wrap(c.db.Exec(ctx, query), errRevokeGrant)
+	if err := c.db.Exec(ctx, query); err != nil {
+		c.logger.Debug("[DELETE] Failed to execute SQL", "error", err)
+		return errors.Wrap(err, errRevokeGrant)
+	}
+
+	// Log successful execution
+	c.logger.Debug("[DELETE] Executed SQL OK")
+
+	return nil
 }

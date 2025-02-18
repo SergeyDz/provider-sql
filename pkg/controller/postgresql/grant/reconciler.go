@@ -606,9 +606,19 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	exists := false
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
-		c.logger.Error("Failed to scan grant", zap.Error(err))
+		c.logger.Error("Failed to scan grant", 
+			zap.Error(err),
+			zap.String("role", *gp.Role),
+			zap.Strings("privileges", gp.Privileges.ToStringSlice()),
+		)
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
+
+	c.logger.Info("Grant existence check", 
+		zap.Bool("exists", exists),
+		zap.String("role", *gp.Role),
+		zap.Strings("privileges", gp.Privileges.ToStringSlice()),
+	)
 
 	if !exists {
 		return managed.ExternalObservation{ResourceExists: false}, nil

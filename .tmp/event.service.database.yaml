@@ -118,6 +118,8 @@ metadata:
     crossplane.io/claim-namespace: event-service
 spec:
   deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
   forProvider:
     database: event_service
     databaseRef:
@@ -131,8 +133,6 @@ spec:
     withOption: GRANT
   managementPolicies:
   - '*'
-  providerConfigRef:
-    name: default-sql-postgres-provider-config
 ---
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Grant
@@ -145,6 +145,8 @@ metadata:
     crossplane.io/claim-namespace: event-service
 spec:
   deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
   forProvider:
     database: event_service
     databaseRef:
@@ -158,8 +160,6 @@ spec:
     withOption: GRANT
   managementPolicies:
   - '*'
-  providerConfigRef:
-    name: default-sql-postgres-provider-config
 ---
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Grant
@@ -172,6 +172,8 @@ metadata:
     crossplane.io/claim-namespace: event-service
 spec:
   deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
   forProvider:
     memberOf: event_service_user
     memberOfRef:
@@ -179,6 +181,26 @@ spec:
     role: kyr_admin
   managementPolicies:
   - '*'
+
+---
+# Define the public schema
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Schema
+metadata:
+  name: public-schema
+  annotations:
+    crossplane.io/external-name: public
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  forProvider:
+    database: event_service
+    databaseRef:
+      name: event-service
+    role: event_service_user
+    roleRef:
+      name: event-service-user
   providerConfigRef:
     name: default-sql-postgres-provider-config
 
@@ -189,15 +211,17 @@ kind: Grant
 metadata:
   name: app-user-schema-usage
 spec:
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
   forProvider:
     privileges:
       - USAGE
     roleRef:
-      name: event_service_app_user
+      name: event-service-app-user
     schemaRef:
-      name: public
+      name: public-schema  # Changed to reference the Schema resource
     databaseRef:
-      name: event_service
+      name: event-service
 ---
 # 4. Grant table privileges to app user
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
@@ -205,6 +229,8 @@ kind: Grant
 metadata:
   name: app-user-table-privileges
 spec:
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
   forProvider:
     privileges:
       - SELECT
@@ -213,9 +239,9 @@ spec:
       - DELETE
       - REFERENCES
     roleRef:
-      name: event_service_app_user
+      name: event-service-app-user
     schemaRef:
-      name: public
+      name: public-schema  # Changed to reference the Schema resource
     databaseRef:
-      name: event_service
+      name: event-service
     onTables: true

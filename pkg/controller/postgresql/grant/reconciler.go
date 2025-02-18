@@ -133,12 +133,12 @@ type external struct {
 type grantType string
 
 const (
-	roleMember   grantType = "ROLE_MEMBER"
-	roleDatabase grantType = "ROLE_DATABASE"
-	roleSchema    grantType = "ROLE_SCHEMA"
-	roleTables    grantType = "ROLE_TABLES"
-	roleSequences grantType = "ROLE_SEQUENCES"
-	roleFunctions grantType = "ROLE_FUNCTIONS"
+	roleMember      grantType = "ROLE_MEMBER"
+	roleDatabase    grantType = "ROLE_DATABASE"
+	roleSchema      grantType = "ROLE_SCHEMA"
+	roleTables      grantType = "ROLE_TABLES"
+	roleSequences   grantType = "ROLE_SEQUENCES"
+	roleFunctions   grantType = "ROLE_FUNCTIONS"
 	roleLargeObjects grantType = "ROLE_LARGE_OBJECTS"
 )
 

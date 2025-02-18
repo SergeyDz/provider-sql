@@ -158,6 +158,35 @@ type GrantParameters struct {
 	// RevokePublicOnDb apply the statement "REVOKE ALL ON DATABASE %s FROM PUBLIC" to make database unreachable from public
 	// +optional
 	RevokePublicOnDb *bool `json:"revokePublicOnDb,omitempty" default:"false"`
+
+	// OnTables specifies if the grant applies to all tables in the schema
+	// +optional
+	OnTables bool `json:"onTables,omitempty"`
+
+	// OnSequences specifies if the grant applies to all sequences in the schema
+	// +optional
+	OnSequences bool `json:"onSequences,omitempty"`
+
+	// OnFunctions specifies if the grant applies to all functions in the schema
+	// +optional
+	OnFunctions bool `json:"onFunctions,omitempty"`
+
+	// OnLargeObjects specifies if the grant applies to all large objects owned by LargeObjectOwner
+	// +optional
+	OnLargeObjects bool `json:"onLargeObjects,omitempty"`
+
+	// LargeObjectOwner specifies the owner of large objects to grant permissions on
+	// +optional
+	LargeObjectOwner *string `json:"largeObjectOwner,omitempty"`
+
+	// SchemaRef references the schema object this grant is for
+	// +immutable
+	// +optional
+	SchemaRef *xpv1.Reference `json:"schemaRef,omitempty"`
+
+	// Schema name this grant is for
+	// +optional
+	Schema *string `json:"schema,omitempty"`
 }
 
 // A GrantStatus represents the observed state of a Grant.

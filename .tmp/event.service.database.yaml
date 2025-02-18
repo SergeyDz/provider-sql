@@ -1,0 +1,183 @@
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Database
+metadata:
+  name: event-service
+  annotations:
+    crossplane.io/external-name: event_service
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  deletionPolicy: Delete
+  forProvider:
+    allowConnections: true
+    connectionLimit: -1
+    encoding: UTF8
+    isTemplate: false
+    lcCType: en_US.UTF-8
+    lcCollate: en_US.UTF-8
+    owner: event_service_user
+    tablespace: pg_default
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Role
+metadata:
+  name: event-service-user
+  annotations:
+    crossplane.io/external-name: event_service_user
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    connectionLimit: -1
+    passwordSecretRef:
+      key: password
+      name: event-service-user
+      namespace: event-service
+    privileges:
+      bypassRls: false
+      createDb: false
+      createRole: false
+      inherit: true
+      login: true
+      replication: false
+      superUser: false
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  writeConnectionSecretToRef:
+    name: postgresdb-event-service-owner
+    namespace: default
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Role
+metadata:
+  name: event-service-app-user
+  annotations:
+    crossplane.io/external-name: event_service_app_user
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    connectionLimit: -1
+    passwordSecretRef:
+      key: password
+      name: event-service-app-user
+      namespace: event-service
+    privileges:
+      bypassRls: false
+      createDb: false
+      createRole: false
+      inherit: true
+      login: true
+      replication: false
+      superUser: false
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  writeConnectionSecretToRef:
+    name: postgresdb-event-service-app-user
+    namespace: default
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: event-service-user
+  namespace: event-service
+type: Opaque
+data:
+  password: aGVsbG93b3JsZA==  # "helloworld" encoded in base64
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: event-service-app-user
+  namespace: event-service
+type: Opaque
+data:
+  password: aGVsbG93b3JsZA==  # "helloworld" encoded in base64
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: event-service-owner-connect
+  annotations:
+    crossplane.io/external-name: event-service-grant-owner-connect
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    database: event_service
+    databaseRef:
+      name: event-service
+    privileges:
+    - CONNECT
+    revokePublicOnDb: true
+    role: event_service_user
+    roleRef:
+      name: event-service-user
+    withOption: GRANT
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: event-service-app-user-connect
+  annotations:
+    crossplane.io/external-name: event-service-grant-app-user-connect
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    database: event_service
+    databaseRef:
+      name: event-service
+    privileges:
+    - CONNECT
+    revokePublicOnDb: true
+    role: event_service_app_user
+    roleRef:
+      name: event-service-app-user
+    withOption: GRANT
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: event-service-admin-membership
+  annotations:
+    crossplane.io/external-name: event-service-admin-grant-to-master
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    memberOf: event_service_user
+    memberOfRef:
+      name: event-service-user
+    role: kyr_admin
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    name: default-sql-postgres-provider-config

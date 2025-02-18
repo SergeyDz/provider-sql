@@ -135,6 +135,11 @@ type grantType string
 const (
 	roleMember   grantType = "ROLE_MEMBER"
 	roleDatabase grantType = "ROLE_DATABASE"
+	roleSchema    grantType = "ROLE_SCHEMA"
+	roleTables    grantType = "ROLE_TABLES"
+	roleSequences grantType = "ROLE_SEQUENCES"
+	roleFunctions grantType = "ROLE_FUNCTIONS"
+	roleLargeObjects grantType = "ROLE_LARGE_OBJECTS"
 )
 
 func identifyGrantType(gp v1alpha1.GrantParameters) (grantType, error) {
@@ -150,6 +155,20 @@ func identifyGrantType(gp v1alpha1.GrantParameters) (grantType, error) {
 		return roleMember, nil
 	}
 
+	if gp.OnTables {
+		return roleTables, nil
+	}
+	if gp.OnSequences {
+		return roleSequences, nil
+	}
+	if gp.OnFunctions {
+		return roleFunctions, nil
+	}
+	if gp.OnLargeObjects {
+		return roleLargeObjects, nil
+	}
+	
+	// Default database grant handling
 	if gp.Database == nil {
 		return "", errors.New(errNoDatabase)
 	}
@@ -216,6 +235,64 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			gp.Role,
 			gro,
 			pq.Array(sp),
+		}
+		return nil
+	case roleTables, roleSequences, roleFunctions:		
+		var objType string
+		switch gt {
+			case roleTables:
+				objType = "r"  // regular table
+			case roleSequences:
+				objType = "S"  // sequence
+			case roleFunctions:
+				objType = "f"  // function
+		}
+
+		// Check if all requested privileges exist on all objects of the specified type
+		q.String = `
+			SELECT EXISTS (
+				SELECT 1 FROM (
+					SELECT cls.oid, cls.relnamespace, 
+						array_agg(privilege_type ORDER BY privilege_type) as privileges
+					FROM pg_class cls
+					JOIN pg_namespace ns ON cls.relnamespace = ns.oid
+					JOIN aclexplode(cls.relacl) acl ON true
+					JOIN pg_roles r ON acl.grantee = r.oid
+					WHERE ns.nspname = $1
+					AND r.rolname = $2
+					AND cls.relkind = $3
+					GROUP BY cls.oid, cls.relnamespace
+				) AS grants
+				WHERE privileges @> $4::text[]
+			)`
+
+		q.Parameters = []interface{}{
+			gp.Schema,
+			gp.Role,
+			objType,
+			pq.Array(gp.Privileges.ToStringSlice()),
+		}
+		return nil
+	case roleLargeObjects:
+		q.String = `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_largeobject_metadata pglm 
+				INNER JOIN pg_authid pga ON pglm.lomowner = pga.oid
+				WHERE pga.rolname = $1
+				AND EXISTS (
+					SELECT 1 FROM pg_largeobject_metadata lo
+					JOIN aclexplode(lo.lomacl) acl ON true
+					JOIN pg_roles r ON acl.grantee = r.oid
+					WHERE lo.oid = pglm.oid
+					AND r.rolname = $2
+					AND array_agg(acl.privilege_type ORDER BY privilege_type) @> $3::text[]
+				)
+			)`
+
+		q.Parameters = []interface{}{
+			gp.LargeObjectOwner,
+			gp.Role,
+			pq.Array(gp.Privileges.ToStringSlice()),
 		}
 		return nil
 	}
@@ -285,6 +362,88 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
 			)
 		}
 		return nil
+	case roleTables:
+		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+		schema := pq.QuoteIdentifier(*gp.Schema)
+		
+		*ql = append(*ql,
+			xsql.Query{String: fmt.Sprintf("REVOKE %s ON ALL TABLES IN SCHEMA %s FROM %s",
+				sp,
+				schema,
+				ro,
+			)},
+			xsql.Query{String: fmt.Sprintf("GRANT %s ON ALL TABLES IN SCHEMA %s TO %s %s",
+				sp,
+				schema,
+				ro,
+				withOption(gp.WithOption),
+			)},
+		)
+		return nil
+
+	case roleSequences:
+		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+		schema := pq.QuoteIdentifier(*gp.Schema)
+		
+		*ql = append(*ql,
+			xsql.Query{String: fmt.Sprintf("REVOKE %s ON ALL SEQUENCES IN SCHEMA %s FROM %s",
+				sp,
+				schema,
+				ro,
+			)},
+			xsql.Query{String: fmt.Sprintf("GRANT %s ON ALL SEQUENCES IN SCHEMA %s TO %s %s",
+				sp,
+				schema,
+				ro,
+				withOption(gp.WithOption),
+			)},
+		)
+		return nil
+
+	case roleFunctions:
+		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+		schema := pq.QuoteIdentifier(*gp.Schema)
+		
+		*ql = append(*ql,
+			xsql.Query{String: fmt.Sprintf("REVOKE %s ON ALL FUNCTIONS IN SCHEMA %s FROM %s",
+				sp,
+				schema,
+				ro,
+			)},
+			xsql.Query{String: fmt.Sprintf("GRANT %s ON ALL FUNCTIONS IN SCHEMA %s TO %s %s",
+				sp,
+				schema,
+				ro,
+				withOption(gp.WithOption),
+			)},
+		)
+		return nil
+	case roleLargeObjects:
+        if gp.Role == nil || gp.LargeObjectOwner == nil {
+            return errors.Errorf(errInvalidParams, roleLargeObjects)
+        }
+
+        // First query finds all large objects owned by specified owner
+        sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+        ro := pq.QuoteIdentifier(*gp.Role)
+
+        *ql = append(*ql,
+            xsql.Query{String: fmt.Sprintf(
+                "DO $$ DECLARE r record; "+
+                "BEGIN "+
+                "FOR r IN SELECT DISTINCT(pglm.oid) as oid FROM pg_largeobject_metadata pglm "+
+                "INNER JOIN pg_authid pga ON pglm.lomowner = pga.oid "+
+                "WHERE pga.rolname = '%s' "+
+                "LOOP "+
+                "EXECUTE 'GRANT %s ON LARGE OBJECT ' || r.oid || ' TO %s %s'; "+
+                "END LOOP; END $$;",
+                *gp.LargeObjectOwner,
+                sp,
+                ro,
+                withOption(gp.WithOption),
+            )},
+        )
+        return nil
 	}
 	return errors.New(errUnknownGrant)
 }
@@ -311,13 +470,34 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			ro,
 		)
 		return nil
+	case roleTables, roleSequences, roleFunctions:
+		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+		schema := pq.QuoteIdentifier(*gp.Schema)
+		
+		var objType string
+		switch gt {
+		case roleTables:
+			objType = "TABLES"
+		case roleSequences:
+			objType = "SEQUENCES"
+		case roleFunctions:
+			objType = "FUNCTIONS"
+		}
+		
+		q.String = fmt.Sprintf("REVOKE %s ON ALL %s IN SCHEMA %s FROM %s",
+			sp,
+			objType,
+			schema,
+			ro,
+		)
+		return nil
 	}
 	return errors.New(errUnknownGrant)
 }
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
 	cr, ok := mg.(*v1alpha1.Grant)
-	if !ok {
+	if (!ok) {
 		return managed.ExternalObservation{}, errors.New(errNotGrant)
 	}
 
@@ -377,7 +557,7 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	cr, ok := mg.(*v1alpha1.Grant)
-	if !ok {
+	if (!ok) {
 		return errors.New(errNotGrant)
 	}
 	var query xsql.Query

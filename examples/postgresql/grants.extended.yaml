@@ -1,0 +1,117 @@
+---
+# 1. Revoke public schema from public and grant all to event_service_user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Schema
+metadata:
+  name: public-schema-permissions
+spec:
+  forProvider:
+    name: public
+    revokePublicOnSchema: true
+    roleRef:
+      name: event_service_user
+    databaseRef:
+      name: event_service
+  providerConfigRef:
+    name: default
+---
+# 2. Grant connect privilege to app user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-connect
+spec:
+  forProvider:
+    privileges:
+      - CONNECT
+    roleRef:
+      name: event_service_app_user
+    databaseRef:
+      name: event_service
+---
+# 3. Grant schema usage to app user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-schema-usage
+spec:
+  forProvider:
+    privileges:
+      - USAGE
+    roleRef:
+      name: event_service_app_user
+    schemaRef:
+      name: public
+    databaseRef:
+      name: event_service
+---
+# 4. Grant table privileges to app user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-table-privileges
+spec:
+  forProvider:
+    privileges:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - REFERENCES
+    roleRef:
+      name: event_service_app_user
+    schemaRef:
+      name: public
+    databaseRef:
+      name: event_service
+    onTables: true
+---
+# 5. Grant sequence privileges to app user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-sequence-privileges
+spec:
+  forProvider:
+    privileges:
+      - USAGE
+      - SELECT
+    roleRef:
+      name: event_service_app_user
+    schemaRef:
+      name: public
+    databaseRef:
+      name: event_service
+    onSequences: true
+---
+# 6. Grant function execution privileges to app user
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-function-privileges
+spec:
+  forProvider:
+    privileges:
+      - EXECUTE
+    roleRef:
+      name: event_service_app_user
+    schemaRef:
+      name: public
+    databaseRef:
+      name: event_service
+    onFunctions: true
+---
+# 7. Grant large object permissions
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-large-object-privileges
+spec:
+  forProvider:
+    privileges:
+      - SELECT
+      - UPDATE
+    roleRef:
+      name: event_service_app_user
+    onLargeObjects: true
+    largeObjectOwner: event_service_user

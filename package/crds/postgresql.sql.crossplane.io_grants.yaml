@@ -162,6 +162,10 @@ spec:
                             type: string
                         type: object
                     type: object
+                  largeObjectOwner:
+                    description: LargeObjectOwner specifies the owner of large objects
+                      to grant permissions on
+                    type: string
                   memberOf:
                     description: MemberOf is the Role that this grant makes Role a
                       member of.
@@ -242,6 +246,22 @@ spec:
                             type: string
                         type: object
                     type: object
+                  onFunctions:
+                    description: OnFunctions specifies if the grant applies to all
+                      functions in the schema
+                    type: boolean
+                  onLargeObjects:
+                    description: OnLargeObjects specifies if the grant applies to
+                      all large objects owned by LargeObjectOwner
+                    type: boolean
+                  onSequences:
+                    description: OnSequences specifies if the grant applies to all
+                      sequences in the schema
+                    type: boolean
+                  onTables:
+                    description: OnTables specifies if the grant applies to all tables
+                      in the schema
+                    type: boolean
                   privileges:
                     description: |-
                       Privileges to be granted.

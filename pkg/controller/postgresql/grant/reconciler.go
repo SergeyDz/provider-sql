@@ -531,11 +531,12 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
 
-	c.logger.Debug("[OBSERVE] Executed SQL OK")
-
 	if !exists {
+		c.logger.Debug("[OBSERVE] Executed SQL WARN! Grant does not exist")
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
+
+	c.logger.Debug("[OBSERVE] Executed SQL OK. Grant exists")
 
 	cr.SetConditions(xpv1.Available())
 

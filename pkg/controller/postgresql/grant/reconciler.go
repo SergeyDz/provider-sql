@@ -32,7 +32,6 @@ import (
 	xpv1 "github.com/crossplane/crossplane-runtime/apis/common/v1"
 	xpcontroller "github.com/crossplane/crossplane-runtime/pkg/controller"
 	"github.com/crossplane/crossplane-runtime/pkg/event"
-	"github.com/crossplane/crossplane-runtime/pkg/logging"
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 	"github.com/crossplane/crossplane-runtime/pkg/resource"
 
@@ -40,6 +39,7 @@ import (
 	"github.com/crossplane-contrib/provider-sql/pkg/clients"
 	"github.com/crossplane-contrib/provider-sql/pkg/clients/postgresql"
 	"github.com/crossplane-contrib/provider-sql/pkg/clients/xsql"
+	"go.uber.org/zap"
 )
 
 const (
@@ -68,13 +68,19 @@ const (
 func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
 	name := managed.ControllerName(v1alpha1.GrantGroupKind)
 
+	// Convert the logger to zap logger
+	zaplog, err := zap.NewDevelopment()
+	if err != nil {
+		return err
+	}
+
 	t := resource.NewProviderConfigUsageTracker(mgr.GetClient(), &v1alpha1.ProviderConfigUsage{})
 	r := managed.NewReconciler(mgr,
 		resource.ManagedKind(v1alpha1.GrantGroupVersionKind),
 		managed.WithExternalConnecter(&connector{
 			kube: mgr.GetClient(), 
 			usage: t,
-			logger: o.Logger,
+			logger: zaplog,
 			newDB: postgresql.New,
 		}),
 		managed.WithLogger(o.Logger.WithValues("controller", name)),
@@ -93,7 +99,7 @@ func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
 type connector struct {
 	kube   client.Client
 	usage  resource.Tracker
-	logger logging.Logger
+	logger *zap.Logger  // Change to zap.Logger
 	newDB  func(creds map[string][]byte, database string, sslmode string) xsql.DB
 }
 
@@ -136,7 +142,7 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 type external struct {
 	db     xsql.DB
 	kube   client.Client
-	logger logging.Logger // Add logger field
+	logger *zap.Logger  // Change to zap.Logger
 }
 
 type grantType string
@@ -177,6 +183,11 @@ func identifyGrantType(gp v1alpha1.GrantParameters) (grantType, error) {
 		return roleLargeObjects, nil
 	}
 	
+	// Add check for schema privileges
+	if gp.Schema != nil {
+		return roleSchema, nil
+	}
+
 	// Default database grant handling
 	if gp.Database == nil {
 		return "", errors.New(errNoDatabase)
@@ -302,6 +313,25 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			gp.LargeObjectOwner,
 			gp.Role,
 			pq.Array(gp.Privileges.ToStringSlice()),
+		}
+		return nil
+	case roleSchema:
+		q.String = `
+			SELECT EXISTS (
+				SELECT 1
+				FROM pg_namespace n
+				JOIN pg_roles r ON r.oid = n.nspowner  
+				WHERE n.nspname = $1
+				AND EXISTS (
+					SELECT 1 FROM information_schema.role_usage_grants
+					WHERE grantee = $2 
+					AND object_schema = $1
+				)
+			)`
+		
+		q.Parameters = []interface{}{
+			gp.Schema,
+			gp.Role,
 		}
 		return nil
 	}
@@ -453,6 +483,28 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
             )},
         )
         return nil
+	case roleSchema:
+		if gp.Schema == nil || gp.Role == nil || len(gp.Privileges) < 1 {
+			return errors.Errorf(errInvalidParams, roleSchema)
+		}
+
+		schema := pq.QuoteIdentifier(*gp.Schema)
+		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+
+		*ql = append(*ql,
+			xsql.Query{String: fmt.Sprintf("REVOKE %s ON SCHEMA %s FROM %s",
+				sp,
+				schema,
+				ro,
+			)},
+			xsql.Query{String: fmt.Sprintf("GRANT %s ON SCHEMA %s TO %s %s",
+				sp,
+				schema,
+				ro,
+				withOption(gp.WithOption),
+			)},
+		)
+		return nil
 	}
 	return errors.New(errUnknownGrant)
 }
@@ -482,7 +534,7 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 	case roleTables, roleSequences, roleFunctions:
 		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
 		schema := pq.QuoteIdentifier(*gp.Schema)
-		
+
 		var objType string
 		switch gt {
 		case roleTables:
@@ -492,11 +544,33 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 		case roleFunctions:
 			objType = "FUNCTIONS"
 		}
-		
+
 		q.String = fmt.Sprintf("REVOKE %s ON ALL %s IN SCHEMA %s FROM %s",
 			sp,
 			objType,
 			schema,
+			ro,
+		)
+		return nil
+	case roleLargeObjects:
+		q.String = fmt.Sprintf(
+			"DO $$ DECLARE r record; "+
+				"BEGIN "+
+				"FOR r IN SELECT DISTINCT(pglm.oid) as oid FROM pg_largeobject_metadata pglm "+
+				"INNER JOIN pg_authid pga ON pglm.lomowner = pga.oid "+
+				"WHERE pga.rolname = '%s' "+
+				"LOOP "+
+				"EXECUTE 'REVOKE %s ON LARGE OBJECT ' || r.oid || ' FROM %s'; "+
+				"END LOOP; END $$;",
+			*gp.LargeObjectOwner,
+			strings.Join(gp.Privileges.ToStringSlice(), ","),
+			ro,
+		)
+		return nil
+	case roleSchema:
+		q.String = fmt.Sprintf("REVOKE %s ON SCHEMA %s FROM %s",
+			strings.Join(gp.Privileges.ToStringSlice(), ","),
+			pq.QuoteIdentifier(*gp.Schema),
 			ro,
 		)
 		return nil
@@ -506,7 +580,7 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
 	cr, ok := mg.(*v1alpha1.Grant)
-	if (!ok) {
+	if !ok {
 		return managed.ExternalObservation{}, errors.New(errNotGrant)
 	}
 
@@ -517,15 +591,16 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	gp := cr.Spec.ForProvider
 	var query xsql.Query
 	if err := selectGrantQuery(gp, &query); err != nil {
+		c.logger.Error("Failed to build select query", zap.Error(err))
 		return managed.ExternalObservation{}, err
 	}
 
 	// Add debug logging for query
-	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
+	c.logger.Debug("Executing SQL query", zap.String("query", query.String), zap.Any("parameters", query.Parameters))
 
 	exists := false
-
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
+		c.logger.Error("Failed to scan grant", zap.Error(err))
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
 
@@ -549,21 +624,26 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.New(errNotGrant)
 	}
 
-	var queries []xsql.Query
-
 	cr.SetConditions(xpv1.Creating())
 
+	var queries []xsql.Query
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
+		c.logger.Error("Failed to create grant queries", zap.Error(err))
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
-	// Add debug logging for queries
+	// Debug log all queries before execution
 	for _, q := range queries {
-		c.logger.Debug("Executing SQL", "query", q.String, "parameters", q.Parameters)
+		c.logger.Debug("Executing SQL query", zap.String("query", q.String), zap.Any("parameters", q.Parameters))
 	}
 
 	err := c.db.ExecTx(ctx, queries)
-	return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
+	if err != nil {
+		c.logger.Error("Failed to execute grant queries", zap.Error(err))
+		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
+	}
+
+	return managed.ExternalCreation{}, nil
 }
 
 func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
@@ -574,20 +654,25 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	cr, ok := mg.(*v1alpha1.Grant)
-	if (!ok) {
+	if !ok {
 		return errors.New(errNotGrant)
 	}
-	var query xsql.Query
 
 	cr.SetConditions(xpv1.Deleting())
 
+	var query xsql.Query
 	err := deleteGrantQuery(cr.Spec.ForProvider, &query)
 	if err != nil {
+		c.logger.Error("Failed to build delete query", zap.Error(err))
 		return errors.Wrap(err, errRevokeGrant)
 	}
 
 	// Add debug logging for query
-	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
+	c.logger.Debug("Executing SQL query", zap.String("query", query.String), zap.Any("parameters", query.Parameters))
 
-	return errors.Wrap(c.db.Exec(ctx, query), errRevokeGrant)
+	if err := c.db.Exec(ctx, query); err != nil {
+		c.logger.Error("Failed to execute delete query", zap.Error(err))
+		return errors.Wrap(err, errRevokeGrant)
+	}
+	return nil
 }

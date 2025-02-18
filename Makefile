@@ -58,7 +58,7 @@ xpkg.build.provider-sql: do.build.images
 # Extract version from provider-sql.yaml
 PROVIDER_VERSION ?= $(shell grep 'image:' .tmp/provider-sql.yaml | head -1 | cut -d':' -f3)
 ARTIFACTORY_REGISTRY ?= artifactory.kod.kyriba.com/crossplane-kyriba/providers
-PACKAGE_OUTPUT = $(ROOT_DIR)/_output/xpkg/linux_amd64/provider-sql-*.xpkg
+PACKAGE_OUTPUT_DIR = $(ROOT_DIR)/_output/xpkg/linux_amd64
 
 # ====================================================================================
 # Targets
@@ -142,11 +142,12 @@ artifactory-push: submodules
 	@git pull --update
 	@make build
 	@$(INFO) Pushing package to $(ARTIFACTORY_REGISTRY)
-	@PKG_FILE=$$(ls $(PACKAGE_OUTPUT)) && \
-		if [ -f "$$PKG_FILE" ]; then \
-			crossplane xpkg push -f $$PKG_FILE $(ARTIFACTORY_REGISTRY)/provider-sql:$(PROVIDER_VERSION); \
+	@LATEST_PKG=$$(ls -v $(PACKAGE_OUTPUT_DIR)/provider-sql-*.xpkg | tail -n1) && \
+		if [ -f "$$LATEST_PKG" ]; then \
+			echo "Using package: $$LATEST_PKG"; \
+			crossplane xpkg push -f "$$LATEST_PKG" $(ARTIFACTORY_REGISTRY)/provider-sql:$(PROVIDER_VERSION); \
 		else \
-			echo "Package file not found in $$PKG_FILE"; \
+			echo "No package files found in $(PACKAGE_OUTPUT_DIR)"; \
 			exit 1; \
 		fi
 	@$(OK) Published provider-sql:$(PROVIDER_VERSION)

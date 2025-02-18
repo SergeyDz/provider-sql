@@ -605,6 +605,20 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	return nil
 }
 
+func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
+    _, ok := mg.(*v1alpha1.Grant)
+    if !ok {
+        return managed.ExternalUpdate{}, errors.New(errNotGrant)
+    }
+
+    // Update is a no-op, as permissions are fully revoked and then granted in the Create function,
+    // inside a transaction.
+    c.logger.Debug("[UPDATE] No-op, permissions are handled in Create")
+    
+    return managed.ExternalUpdate{}, nil
+}
+
+
 // Add this helper function
 func cleanSQLForLog(query string) string {
     // Replace all newlines and tabs with a single space

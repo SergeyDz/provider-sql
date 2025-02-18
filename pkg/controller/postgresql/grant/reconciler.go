@@ -504,6 +504,7 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 	return errors.New(errUnknownGrant)
 }
 
+// Modified Observe method with clean SQL logging
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
 	cr, ok := mg.(*v1alpha1.Grant)
 	if (!ok) {
@@ -521,8 +522,8 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, err
 	}
 
-	// Log before execution
-	c.logger.Debug("[OBSERVE] Executing SQL", "query", query.String, "parameters", query.Parameters)
+	// Log before execution with cleaned SQL
+	c.logger.Debug("[OBSERVE] Executing SQL", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
 
 	exists := false
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
@@ -530,7 +531,6 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
 
-	// Log successful execution
 	c.logger.Debug("[OBSERVE] Executed SQL OK")
 
 	if !exists {
@@ -546,6 +546,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	}, nil
 }
 
+// Modified Create method with clean SQL logging
 func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.ExternalCreation, error) {
 	cr, ok := mg.(*v1alpha1.Grant)
 	if !ok {
@@ -561,9 +562,9 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
-	// Log before execution
+	// Log before execution with cleaned SQL
 	for _, q := range queries {
-		c.logger.Debug("[CREATE] Executing SQL", "query", q.String, "parameters", q.Parameters)
+		c.logger.Debug("[CREATE] Executing SQL", "query", cleanSQLForLog(q.String), "parameters", q.Parameters)
 	}
 
 	if err := c.db.ExecTx(ctx, queries); err != nil {
@@ -571,18 +572,12 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
-	// Log successful execution
 	c.logger.Debug("[CREATE] Executed SQL OK")
 
 	return managed.ExternalCreation{}, nil
 }
 
-func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
-	// Update is a no-op, as permissions are fully revoked and then granted in the Create function,
-	// inside a transaction.
-	return managed.ExternalUpdate{}, nil
-}
-
+// Modified Delete method with clean SQL logging
 func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	cr, ok := mg.(*v1alpha1.Grant)
 	if (!ok) {
@@ -597,16 +592,29 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 		return errors.Wrap(err, errRevokeGrant)
 	}
 
-	// Log before execution
-	c.logger.Debug("[DELETE] Executing SQL", "query", query.String, "parameters", query.Parameters)
+	// Log before execution with cleaned SQL
+	c.logger.Debug("[DELETE] Executing SQL", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
 
 	if err := c.db.Exec(ctx, query); err != nil {
 		c.logger.Debug("[DELETE] Failed to execute SQL", "error", err)
 		return errors.Wrap(err, errRevokeGrant)
 	}
 
-	// Log successful execution
 	c.logger.Debug("[DELETE] Executed SQL OK")
 
 	return nil
+}
+
+// Add this helper function
+func cleanSQLForLog(query string) string {
+    // Replace all newlines and tabs with a single space
+    cleaned := strings.ReplaceAll(query, "\n", " ")
+    cleaned = strings.ReplaceAll(cleaned, "\t", " ")
+    
+    // Replace multiple spaces with a single space
+    for strings.Contains(cleaned, "  ") {
+        cleaned = strings.ReplaceAll(cleaned, "  ", " ")
+    }
+    
+    return strings.TrimSpace(cleaned)
 }

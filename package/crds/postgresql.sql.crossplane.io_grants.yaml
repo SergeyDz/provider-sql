@@ -356,6 +356,26 @@ spec:
                             type: string
                         type: object
                     type: object
+                  schema:
+                    type: string
+                  schemaRef:
+                    description: SchemaRef references to a Schema object to retrieve its Schema
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  schemaSelector:
+                    description: SchemaSelector selects a reference to a Schema
+                    properties:
+                      matchControllerRef:
+                        type: boolean
+                      matchLabels:
+                        additionalProperties:
+                          type: string
+                        type: object
+                    type: object
                   withOption:
                     description: |-
                       WithOption allows an option to be set on the grant.

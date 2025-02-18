@@ -1,0 +1,10 @@
+apiVersion: pkg.crossplane.io/v1
+kind: Provider
+metadata:
+  name: provider-sql
+spec:
+  package: artifactory.kod.kyriba.com/crossplane-kyriba/providers/provider-sql:0.12.0-kyr-beta.2
+  packagePullPolicy: IfNotPresent
+  revisionActivationPolicy: Automatic
+  runtimeConfigRef:
+    name: sql-provider-runtime-config

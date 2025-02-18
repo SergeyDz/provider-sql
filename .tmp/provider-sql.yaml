@@ -10,7 +10,7 @@ spec:
         spec:
           containers:
             - name: package-runtime
-              image: artifactory.kod.kyriba.com/crossplane-kyriba/providers/provider-sql:0.12.0-kyr-beta.1
+              image: artifactory.kod.kyriba.com/crossplane-kyriba/providers/provider-sql:0.12.0-kyr-beta.3
               imagePullPolicy: IfNotPresent
 ---
 apiVersion: pkg.crossplane.io/v1
@@ -23,7 +23,7 @@ metadata:
     kyriba.io/component: sql
     kyriba.io/package: crossplane-providers
 spec:
-  package: artifactory.kod.kyriba.com/crossplane-kyriba/providers/provider-sql:0.12.0-kyr-beta.1
+  package: artifactory.kod.kyriba.com/crossplane-kyriba/providers/provider-sql:0.12.0-kyr-beta.3
   packagePullPolicy: IfNotPresent
   packagePullSecrets:
   - name: artifactory-auth

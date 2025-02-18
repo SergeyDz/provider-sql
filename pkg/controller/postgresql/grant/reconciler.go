@@ -541,7 +541,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	gp := cr.Spec.ForProvider
 	var query xsql.Query
 	if err := selectGrantQuery(gp, &query); err != nil {
-		c.logger.Debug("[OBSERVE] Failed to build query", "error", err)
+		c.logger.Debug("[ERROR][OBSERVE] Failed to build query", "error", err)
 		return managed.ExternalObservation{}, err
 	}
 
@@ -555,7 +555,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	}
 
 	if !exists {
-		c.logger.Debug("[OBSERVE] Executed SQL WARN! Grant does not exist")
+		c.logger.Debug("[WARN][OBSERVE] Executed SQL: Grant does not exist")
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
@@ -593,7 +593,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	cr.SetConditions(xpv1.Creating())
 
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
-		c.logger.Debug("[CREATE] Failed to build queries", "error", err)
+		c.logger.Debug("[ERROR][CREATE] Failed to build queries", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
@@ -603,7 +603,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	if err := c.db.ExecTx(ctx, queries); err != nil {
-		c.logger.Debug("[CREATE] Failed to execute SQL", "error", err)
+		c.logger.Debug("[ERROR][CREATE] Failed to execute SQL", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
@@ -623,7 +623,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	cr.SetConditions(xpv1.Deleting())
 
 	if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {
-		c.logger.Debug("[DELETE] Failed to build query", "error", err)
+		c.logger.Debug("[ERROR][DELETE] Failed to build query", "error", err)
 		return errors.Wrap(err, errRevokeGrant)
 	}
 
@@ -631,7 +631,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	c.logger.Debug("[DELETE] Executing SQL", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
 
 	if err := c.db.Exec(ctx, query); err != nil {
-		c.logger.Debug("[DELETE] Failed to execute SQL", "error", err)
+		c.logger.Debug("[ERROR][DELETE] Failed to execute SQL", "error", err)
 		return errors.Wrap(err, errRevokeGrant)
 	}
 

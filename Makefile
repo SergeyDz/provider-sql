@@ -55,6 +55,11 @@ XPKGS = provider-sql
 # we ensure image is present in daemon.
 xpkg.build.provider-sql: do.build.images
 
+# Extract version from provider-sql.yaml
+PROVIDER_VERSION ?= $(shell grep 'image:' .tmp/provider-sql.yaml | head -1 | cut -d':' -f3)
+ARTIFACTORY_REGISTRY ?= artifactory.kod.kyriba.com/crossplane-kyriba/providers
+PACKAGE_OUTPUT = $(GO_OUT_DIR)/xpkg/linux_amd64/provider-sql-*.xpkg
+
 # ====================================================================================
 # Targets
 
@@ -130,6 +135,22 @@ dev-clean: $(KIND) $(KUBECTL)
 
 .PHONY: submodules fallthrough test-integration run crds.clean dev dev-clean
 
+# Add new target for publishing
+.PHONY: publish
+publish: submodules
+	@$(INFO) Publishing provider-sql $(PROVIDER_VERSION)
+	@git pull --update
+	@make build
+	@$(INFO) Pushing package to $(ARTIFACTORY_REGISTRY)
+	@PKG_FILE=$$(ls $(PACKAGE_OUTPUT)) && \
+		if [ -f "$$PKG_FILE" ]; then \
+			crossplane xpkg push -f $$PKG_FILE $(ARTIFACTORY_REGISTRY)/provider-sql:$(PROVIDER_VERSION); \
+		else \
+			echo "Package file not found"; \
+			exit 1; \
+		fi
+	@$(OK) Published provider-sql:$(PROVIDER_VERSION)
+
 # ====================================================================================
 # Special Targets
 
@@ -137,6 +158,7 @@ define CROSSPLANE_MAKE_HELP
 Crossplane Targets:
     submodules            Update the submodules, such as the common build scripts.
     run                   Run crossplane locally, out-of-cluster. Useful for development.
+    publish              Build and publish provider to Artifactory registry.
 
 endef
 # The reason CROSSPLANE_MAKE_HELP is used instead of CROSSPLANE_HELP is because the crossplane

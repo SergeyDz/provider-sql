@@ -120,14 +120,16 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errGetSecret)
 	}
 	return &external{
-		db:   c.newDB(s.Data, pc.Spec.DefaultDatabase, clients.ToString(pc.Spec.SSLMode)),
-		kube: c.kube,
+		db:     c.newDB(s.Data, pc.Spec.DefaultDatabase, clients.ToString(pc.Spec.SSLMode)),
+		kube:   c.kube,
+		logger: c.logger, // Pass logger from connector
 	}, nil
 }
 
 type external struct {
-	db   xsql.DB
-	kube client.Client
+	db     xsql.DB
+	kube   client.Client
+	logger logging.Logger // Add logger field
 }
 
 type grantType string
@@ -511,6 +513,9 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, err
 	}
 
+	// Add debug logging for query
+	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
+
 	exists := false
 
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
@@ -545,6 +550,11 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
+	// Add debug logging for queries
+	for _, q := range queries {
+		c.logger.Debug("Executing SQL", "query", q.String, "parameters", q.Parameters)
+	}
+
 	err := c.db.ExecTx(ctx, queries)
 	return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 }
@@ -568,6 +578,9 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	if err != nil {
 		return errors.Wrap(err, errRevokeGrant)
 	}
+
+	// Add debug logging for query
+	c.logger.Debug("Executing SQL", "query", query.String, "parameters", query.Parameters)
 
 	return errors.Wrap(c.db.Exec(ctx, query), errRevokeGrant)
 }

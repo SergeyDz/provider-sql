@@ -872,7 +872,7 @@ func isDatabaseNotExistError(err error) bool {
     }
     errMsg := err.Error()
     return strings.Contains(errMsg, errDatabaseDoesNotExist) || 
-           (strings.Contains(errMsg, "does not exist") && strings.contains(errMsg, "database"))
+           (strings.Contains(errMsg, "does not exist") && strings.Contains(errMsg, "database"))
 }
 
 // Add helper function to get object type

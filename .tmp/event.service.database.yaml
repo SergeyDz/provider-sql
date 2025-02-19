@@ -313,3 +313,108 @@ spec:
     databaseRef:
       name: event-service
     onTables: true
+
+---
+# Sequence privileges for public schema
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-public-sequence-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+      - SELECT
+    roleRef:
+      name: event-service-app-user
+    schemaRef:
+      name: public-schema
+    databaseRef:
+      name: event-service
+    onSequences: true
+
+---
+# Sequence privileges for next schema
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-next-sequence-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+      - SELECT
+    roleRef:
+      name: event-service-app-user
+    schemaRef:
+      name: next-schema
+    databaseRef:
+      name: event-service
+    onSequences: true
+
+---
+# Function privileges for public schema
+apiVersion: postgresql.sql.crossplane.io.v1alpha1
+kind: Grant
+metadata:
+  name: app-user-public-function-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - EXECUTE
+    roleRef:
+      name: event-service-app-user
+    schemaRef:
+      name: public-schema
+    databaseRef:
+      name: event-service
+    onFunctions: true
+
+---
+# Function privileges for next schema
+apiVersion: postgresql.sql.crossplane.io.v1alpha1
+kind: Grant
+metadata:
+  name: app-user-next-function-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - EXECUTE
+    roleRef:
+      name: event-service-app-user
+    schemaRef:
+      name: next-schema
+    databaseRef:
+      name: event-service
+    onFunctions: true
+
+---
+# Large object privileges (schema-independent)
+apiVersion: postgresql.sql.crossplane.io.v1alpha1
+kind: Grant
+metadata:
+  name: app-user-large-object-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - SELECT
+      - UPDATE
+    roleRef:
+      name: event-service-app-user
+    onLargeObjects: true
+    largeObjectOwner: event_service_user

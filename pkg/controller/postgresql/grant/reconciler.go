@@ -290,30 +290,39 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			}
 
 		if gp.DefaultPrivileges != nil && *gp.DefaultPrivileges && gp.ForRole != nil {
-			 // Fixed query to check default privileges without using aggregate in WHERE
+			 // Fixed query to correctly check default privileges
 			q.String = `
-				SELECT EXISTS(
-					SELECT 1 
-					FROM pg_default_acl a
-					JOIN pg_namespace n ON n.oid = a.defaclnamespace
-					JOIN pg_roles r ON r.oid = a.defaclrole
-					WHERE n.nspname = $1 
-					AND r.rolname = $2
-					AND a.defaclobjtype = $3
-					AND EXISTS (
-						WITH privs AS (
-							SELECT privilege_type
-							FROM aclexplode(a.defaclacl) acl
-							JOIN pg_roles g ON g.oid = acl.grantee
-							WHERE g.rolname = $4
-						)
-						SELECT 1 WHERE NOT EXISTS (
-							SELECT unnest($5::text[]) AS expected_priv
-							EXCEPT
-							SELECT privilege_type FROM privs
-						)
-					)
-				)`
+                SELECT EXISTS(
+                    SELECT 1 
+                    FROM pg_default_acl a
+                    JOIN pg_namespace n ON n.oid = a.defaclnamespace
+                    JOIN pg_roles r ON r.oid = a.defaclrole
+                    JOIN pg_roles g ON g.rolname = $4
+                    WHERE n.nspname = $1 
+                    AND r.rolname = $2
+                    AND a.defaclobjtype = $3
+                    AND EXISTS (
+                        WITH needed_privs AS (
+                            SELECT unnest($5::text[]) AS priv
+                        ),
+                        actual_privs AS (
+                            SELECT DISTINCT acl.privilege_type
+                            FROM aclexplode(a.defaclacl) acl
+                            WHERE acl.grantee = g.oid
+                        )
+                        SELECT 1
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM needed_privs
+                            EXCEPT
+                            SELECT privilege_type FROM actual_privs
+                        )
+                        AND NOT EXISTS (
+                            SELECT privilege_type FROM actual_privs
+                            EXCEPT
+                            SELECT priv FROM needed_privs
+                        )
+                    )
+                )`
 
 			q.Parameters = []interface{}{
 				gp.Schema,
@@ -863,7 +872,7 @@ func isDatabaseNotExistError(err error) bool {
     }
     errMsg := err.Error()
     return strings.Contains(errMsg, errDatabaseDoesNotExist) || 
-           (strings.Contains(errMsg, "does not exist") && strings.Contains(errMsg, "database"))
+           (strings.Contains(errMsg, "does not exist") && strings.contains(errMsg, "database"))
 }
 
 // Add helper function to get object type

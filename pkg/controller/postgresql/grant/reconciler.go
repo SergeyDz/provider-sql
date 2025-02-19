@@ -135,16 +135,15 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 	targetDB := pc.Spec.DefaultDatabase
 	if cr.Spec.ForProvider.Database != nil {
 		// Try to connect to target database first
-		db := c.newDB(s.Data, *cr.Spec.ForProvider.Database, clients.ToString(pc.Spec.SSLMode))
-		err := db.Ping(ctx)
+		testDb := c.newDB(s.Data, *cr.Spec.ForProvider.Database, clients.ToString(pc.Spec.SSLMode))
+		err := testDb.Exec(ctx, xsql.Query{String: "SELECT 1"})
 		if err != nil && isDatabaseNotExistError(err) {
 			c.logger.Debug("[CONNECT] Target database does not exist, connecting to postgres database")
 			targetDB = defaultPostgresDB
 		} else if err != nil {
-			return nil, errors.Wrap(err, "cannot ping database")
+			return nil, errors.Wrap(err, "cannot connect to database")
 		} else {
 			targetDB = *cr.Spec.ForProvider.Database
-			db.Close(ctx)
 		}
 	}
 
@@ -715,5 +714,5 @@ func isDatabaseNotExistError(err error) bool {
     }
     errMsg := err.Error()
     return strings.Contains(errMsg, errDatabaseDoesNotExist) || 
-           strings.Contains(errMsg, "does not exist") && strings.contains(errMsg, "database")
+           (strings.Contains(errMsg, "does not exist") && strings.Contains(errMsg, "database"))
 }

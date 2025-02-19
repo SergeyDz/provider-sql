@@ -64,6 +64,8 @@ const (
 	maxConcurrency = 5
 
 	errDatabaseDoesNotExist = "database does not exist"
+
+	defaultPostgresDB = "postgres" // Add this constant
 )
 
 // Setup adds a controller that reconciles Grant managed resources.
@@ -129,10 +131,21 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		return nil, errors.Wrap(err, errGetSecret)
 	}
 
-	// Use the target database from the Grant spec if available, otherwise use the default
+	// Use postgres database if target database doesn't exist
 	targetDB := pc.Spec.DefaultDatabase
 	if cr.Spec.ForProvider.Database != nil {
-		targetDB = *cr.Spec.ForProvider.Database
+		// Try to connect to target database first
+		db := c.newDB(s.Data, *cr.Spec.ForProvider.Database, clients.ToString(pc.Spec.SSLMode))
+		err := db.Ping(ctx)
+		if err != nil && isDatabaseNotExistError(err) {
+			c.logger.Debug("[CONNECT] Target database does not exist, connecting to postgres database")
+			targetDB = defaultPostgresDB
+		} else if err != nil {
+			return nil, errors.Wrap(err, "cannot ping database")
+		} else {
+			targetDB = *cr.Spec.ForProvider.Database
+			db.Close(ctx)
+		}
 	}
 
 	return &external{
@@ -700,5 +713,7 @@ func isDatabaseNotExistError(err error) bool {
     if err == nil {
         return false
     }
-    return strings.Contains(err.Error(), errDatabaseDoesNotExist)
+    errMsg := err.Error()
+    return strings.Contains(errMsg, errDatabaseDoesNotExist) || 
+           strings.Contains(errMsg, "does not exist") && strings.contains(errMsg, "database")
 }

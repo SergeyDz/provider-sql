@@ -740,7 +740,9 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	}
 
 	if !exists {
-		c.logger.Debug("[warn][observe] Executed SQL: Grant does not exist")
+		c.logger.Info("[warn][observe] Grant does not exist", // Changed from Warn to Info
+            "grant", cr.GetName(),
+            "type", string(gt))
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
@@ -786,7 +788,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	// Log before execution with cleaned SQL
 	for _, q := range queries {
-		c.logger.Debug("[CREATE]",
+		c.logger.Info("[CREATE]",
             "grant", cr.GetName(),
             "type", string(gt),
             "database", getLoggableDatabase(cr.Spec.ForProvider.Database),
@@ -802,7 +804,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
-	c.logger.Debug("[CREATE] Executed SQL OK")
+	c.logger.Info("[CREATE] Successfully executed SQL", "grant", cr.GetName())
 	return managed.ExternalCreation{}, nil
 }
 
@@ -813,7 +815,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
         return errors.New(errNotGrant)
     }
 
-    c.logger.Debug("[DELETE] Starting deletion", 
+    c.logger.Info("[DELETE] Starting deletion",  // Changed from Warn to Info
         "resource", cr.GetName(),
         "deletionTimestamp", cr.GetDeletionTimestamp())
 
@@ -821,7 +823,9 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
     if cr.Spec.ForProvider.Database != nil {
         if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
             if isDatabaseNotExistError(err) {
-                c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
+                c.logger.Info("[DELETE] Database does not exist", // Changed from Warn to Info
+                    "grant", cr.GetName(),
+                    "database", *cr.Spec.ForProvider.Database)
                 return nil
             }
             return errors.Wrap(err, "failed to reset search_path")
@@ -829,7 +833,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
         switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
         if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {
             if isDatabaseNotExistError(err) {
-                c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
+                c.logger.Info("[DELETE] Database does not exist, considering grant already deleted")
                 return nil
             }
             return errors.Wrap(err, "failed to reset session")
@@ -847,7 +851,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
         return errors.Wrap(err, errRevokeGrant)
     }
 
-    c.logger.Debug("[DELETE] Executing REVOKE",
+    c.logger.Info("[DELETE] Executing REVOKE", // Changed from Warn to Info
         "grant", cr.GetName(),
         "type", string(gt),
         "database", getLoggableDatabase(cr.Spec.ForProvider.Database),
@@ -861,7 +865,7 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
         return errors.Wrap(err, errRevokeGrant)
     }
 
-    c.logger.Debug("[DELETE] Successfully executed REVOKE")
+    c.logger.Info("[DELETE] Successfully executed REVOKE", "grant", cr.GetName()) // Changed from Warn to Info
     return nil
 }
 

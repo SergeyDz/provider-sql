@@ -1,0 +1,86 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+
+# Default table privileges for each schema
+{{- range $.Values.defaultSchemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ .name }}-table-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - REFERENCES
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ .name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onTables: true
+{{- end }}
+
+# Service-specific schemas table privileges
+{{- range $schema := $serviceConfig.schemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ $schema.name }}-table-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - REFERENCES
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ $schema.name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onTables: true
+{{- end }}
+
+# Default table privileges for public schema
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-public-default-table-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - REFERENCES
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-public-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onTables: true
+    defaultPrivileges: true
+    forRole: {{ $names.dbName }}_user
+{{- end }}
+{{- end }}

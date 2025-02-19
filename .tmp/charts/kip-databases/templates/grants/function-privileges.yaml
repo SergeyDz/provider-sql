@@ -1,0 +1,74 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+
+# Default schemas function privileges
+{{- range $.Values.defaultSchemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ .name }}-function-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - EXECUTE
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ .name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onFunctions: true
+{{- end }}
+
+# Custom schemas function privileges
+{{- range $schema := $serviceConfig.schemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ $schema.name }}-function-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - EXECUTE
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ $schema.name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onFunctions: true
+{{- end }}
+
+# Add default function privileges
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-public-default-function-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - EXECUTE
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-public-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onFunctions: true
+    defaultPrivileges: true
+    forRole: {{ $names.dbName }}_user
+{{- end }}
+{{- end }}

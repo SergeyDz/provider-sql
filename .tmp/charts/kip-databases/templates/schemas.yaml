@@ -1,0 +1,56 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+
+# Create default schemas first
+{{- range $.Values.defaultSchemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Schema
+metadata:
+  name: {{ $names.k8sName }}-{{ .name }}-schema
+  annotations:
+    crossplane.io/external-name: {{ .name }}
+    helm.sh/hook-weight: "5"
+  labels:
+    crossplane.io/claim-name: {{ $serviceConfig.claim }}
+    crossplane.io/claim-namespace: {{ $serviceConfig.namespace }}
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    database: {{ $names.dbName }}
+    databaseRef:
+      name: {{ $names.k8sName }}
+    role: {{ $names.dbName }}_user
+    roleRef:
+      name: {{ $names.k8sName }}-user
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+{{- end }}
+
+# Create service-specific schemas
+{{- if $serviceConfig.schemas }}
+{{- range $schema := $serviceConfig.schemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Schema
+metadata:
+  name: {{ $names.k8sName }}-{{ $schema.name }}-schema
+  annotations:
+    crossplane.io/external-name: {{ $schema.name }}
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    database: {{ $names.dbName }}
+    databaseRef:
+      name: {{ $names.k8sName }}
+    role: {{ $names.dbName }}_user
+    roleRef:
+      name: {{ $names.k8sName }}-user
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+{{- end }}
+{{- end }}
+
+{{- end }}
+{{- end }}

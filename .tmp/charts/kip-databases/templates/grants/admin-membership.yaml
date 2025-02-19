@@ -1,0 +1,28 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-admin-membership
+  annotations:
+    crossplane.io/external-name: {{ $names.k8sName }}-admin-grant-to-master
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+  labels:
+    crossplane.io/claim-name: {{ $serviceConfig.claim }}
+    crossplane.io/claim-namespace: {{ $serviceConfig.namespace }}
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    memberOf: {{ $names.dbName }}_user
+    memberOfRef:
+      name: {{ $names.k8sName }}-user
+    role: kyr_admin
+  managementPolicies:
+  - '*'
+{{- end }}
+{{- end }}

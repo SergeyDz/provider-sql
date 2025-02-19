@@ -1,0 +1,25 @@
+defaultPassword:
+  user: aGVsbG93b3JsZA==      # "helloworld" encoded in base64
+  app_user: aGVsbG93b3JsZA==  # "helloworld" encoded in base64
+
+defaultSchemas:
+  - name: public
+    isDefault: true
+  - name: test
+
+databases:
+  event_service:
+    namespace: event-service
+    claim: postgresdb-event-service
+    instances:
+      - suffix: kip0
+        passwords:
+          user: c2VjcmV0MQ==     # "secret1" encoded in base64
+          app_user: c2VjcmV0Mg==  # "secret2" encoded in base64
+      - suffix: kip1
+      - suffix: kip2
+        passwords:
+          user: c3VwZXJzZWNyZXQ=  # Only override user password
+    schemas:
+      - name: next
+      - name: audit

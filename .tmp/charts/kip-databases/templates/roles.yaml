@@ -1,0 +1,55 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Role
+metadata:
+  name: {{ $names.k8sName }}-user
+  annotations:
+    crossplane.io/external-name: {{ $names.dbName }}_user
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    connectionLimit: -1
+    passwordSecretRef:
+      key: password
+      name: {{ $names.k8sName }}-user
+      namespace: {{ $serviceConfig.namespace }}
+    privileges:
+      bypassRls: false
+      createDb: false
+      createRole: false
+      inherit: true
+      login: true
+      replication: false
+      superUser: false
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Role
+metadata:
+  name: {{ $names.k8sName }}-app-user
+  annotations:
+    crossplane.io/external-name: {{ $names.dbName }}_app_user
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    connectionLimit: -1
+    passwordSecretRef:
+      key: password
+      name: {{ $names.k8sName }}-app-user
+      namespace: {{ $serviceConfig.namespace }}
+    privileges:
+      bypassRls: false
+      createDb: false
+      createRole: false
+      inherit: true
+      login: true
+      replication: false
+      superUser: false
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+{{- end }}
+{{- end }}

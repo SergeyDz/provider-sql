@@ -1,0 +1,30 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Database
+metadata:
+  name: {{ $names.k8sName }}
+  annotations:
+    crossplane.io/external-name: {{ $names.dbName }}
+  labels:
+    crossplane.io/claim-name: {{ $serviceConfig.claim }}
+    crossplane.io/claim-namespace: {{ $serviceConfig.namespace }}
+spec:
+  deletionPolicy: Delete
+  forProvider:
+    allowConnections: true
+    connectionLimit: -1
+    encoding: UTF8
+    isTemplate: false
+    lcCType: en_US.UTF-8
+    lcCollate: en_US.UTF-8
+    owner: {{ $names.dbName }}_user
+    tablespace: pg_default
+  managementPolicies:
+  - '*'
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+{{- end }}
+{{- end }}

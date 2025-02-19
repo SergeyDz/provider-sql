@@ -1,0 +1,5 @@
+apiVersion: v2
+name: kip-databases
+description: Helm chart for KIP PostgreSQL databases configuration
+version: 0.1.0
+type: application

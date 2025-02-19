@@ -1,0 +1,76 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+
+# Default schemas sequence privileges
+{{- range $.Values.defaultSchemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ .name }}-sequence-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+      - SELECT
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ .name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onSequences: true
+{{- end }}
+
+# Service-specific schemas sequence privileges
+{{- range $schema := $serviceConfig.schemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ $schema.name }}-sequence-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+      - SELECT
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ $schema.name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onSequences: true
+{{- end }}
+
+# Default sequence privileges
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-public-default-sequence-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - SELECT
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-public-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+    onSequences: true
+    defaultPrivileges: true
+    forRole: {{ $names.dbName }}_user
+{{- end }}
+{{- end }}

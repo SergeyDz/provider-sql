@@ -1,0 +1,50 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $suffix := $serviceConfig.suffixes }}
+{{- $names := include "database.fullname" (dict "service" $serviceName "suffix" $suffix) | fromJson }}
+
+# Make sure schema exists before creating grants
+{{- range $.Values.defaultSchemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ .name }}-schema-usage
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ .name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+{{- end }}
+
+{{- if $serviceConfig.schemas }}
+{{- range $schema := $serviceConfig.schemas }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-{{ $schema.name }}-schema-usage
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    schemaRef:
+      name: {{ $names.k8sName }}-{{ $schema.name }}-schema
+    databaseRef:
+      name: {{ $names.k8sName }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,39 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-owner-connect
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    database: {{ $names.dbName }}
+    databaseRef:
+      name: {{ $names.k8sName }}
+    privileges:
+    - CONNECT
+    revokePublicOnDb: true
+    role: {{ $names.dbName }}_user
+    roleRef:
+      name: {{ $names.k8sName }}-user
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-app-user-connect
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    database: {{ $names.dbName }}
+    databaseRef:
+      name: {{ $names.k8sName }}
+    privileges:
+    - CONNECT
+    revokePublicOnDb: true
+    role: {{ $names.dbName }}_app_user
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+{{- end }}
+{{- end }}

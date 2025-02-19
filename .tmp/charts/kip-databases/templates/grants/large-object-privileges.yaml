@@ -1,0 +1,22 @@
+{{- range $serviceName, $serviceConfig := .Values.databases }}
+{{- range $instance := $serviceConfig.instances }}
+{{- $names := include "database.names" (dict "service" $serviceName "suffix" $instance.suffix) | fromJson }}
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: {{ $names.k8sName }}-large-object-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - SELECT
+      - UPDATE
+    roleRef:
+      name: {{ $names.k8sName }}-app-user
+    onLargeObjects: true
+    largeObjectOwner: {{ $names.dbName }}_user
+{{- end }}
+{{- end }}

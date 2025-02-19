@@ -62,6 +62,8 @@ const (
 	errMemberOfWithDatabaseOrPrivileges = "cannot set privileges or database in the same grant as memberOf"
 
 	maxConcurrency = 5
+
+	errDatabaseDoesNotExist = "database does not exist"
 )
 
 // Setup adds a controller that reconciles Grant managed resources.
@@ -530,6 +532,11 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	// Switch to the correct database if specified
 	if cr.Spec.ForProvider.Database != nil {
 		if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
+			if isDatabaseNotExistError(err) {
+				// If database doesn't exist, treat as resource doesn't exist
+				c.logger.Debug("[OBSERVE] Database does not exist, considering grant as non-existent")
+				return managed.ExternalObservation{ResourceExists: false}, nil
+			}
 			return managed.ExternalObservation{}, errors.Wrap(err, "failed to reset search_path")
 		}
 		switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
@@ -618,6 +625,26 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
 	if (!ok) {
 		return errors.New(errNotGrant)
 	}
+
+	// If we need to switch database but it doesn't exist, consider the grant already deleted
+	if cr.Spec.ForProvider.Database != nil {
+		if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
+			if isDatabaseNotExistError(err) {
+				c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
+				return nil
+			}
+			return errors.Wrap(err, "failed to reset search_path")
+		}
+		switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
+		if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {
+			if isDatabaseNotExistError(err) {
+				c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
+				return nil
+			}
+			return errors.Wrap(err, "failed to reset session")
+		}
+	}
+
 	var query xsql.Query
 
 	cr.SetConditions(xpv1.Deleting())
@@ -666,4 +693,12 @@ func cleanSQLForLog(query string) string {
     }
     
     return strings.TrimSpace(cleaned)
+}
+
+// Add this helper function
+func isDatabaseNotExistError(err error) bool {
+    if err == nil {
+        return false
+    }
+    return strings.Contains(err.Error(), errDatabaseDoesNotExist)
 }

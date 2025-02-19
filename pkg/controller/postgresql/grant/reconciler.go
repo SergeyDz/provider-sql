@@ -464,11 +464,19 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
 		
 		if gp.DefaultPrivileges != nil && *gp.DefaultPrivileges && gp.ForRole != nil {
 			forRole := pq.QuoteIdentifier(*gp.ForRole)
+			// First revoke any existing default privileges
 			*ql = append(*ql,
-				xsql.Query{String: fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s GRANT %s ON TABLES TO %s %s",
+				xsql.Query{String: fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s REVOKE ALL ON %s FROM %s",
+					forRole,
+					schema,
+					getObjectTypeName(gt),
+					ro,
+				)},
+				xsql.Query{String: fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s GRANT %s ON %s TO %s %s",
 					forRole,
 					schema,
 					sp,
+					getObjectTypeName(gt),
 					ro,
 					withOption(gp.WithOption),
 				)},
@@ -498,10 +506,17 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
 		if gp.DefaultPrivileges != nil && *gp.DefaultPrivileges && gp.ForRole != nil {
 			forRole := pq.QuoteIdentifier(*gp.ForRole)
 			*ql = append(*ql,
-				xsql.Query{String: fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s GRANT %s ON SEQUENCES TO %s %s",
+				xsql.Query{String: fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s REVOKE ALL ON %s FROM %s",
+					forRole,
+					schema,
+					getObjectTypeName(gt),
+					ro,
+				)},
+				xsql.Query{String: fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s GRANT %s ON %s TO %s %s",
 					forRole,
 					schema,
 					sp,
+					getObjectTypeName(gt),
 					ro,
 					withOption(gp.WithOption),
 				)},
@@ -592,6 +607,17 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
         return nil
 	}
 	return errors.New(errUnknownGrant)
+}
+
+func getObjectTypeName(gt grantType) string {
+    switch gt {
+    case roleTables:
+        return "TABLES"
+    case roleSequences:
+        return "SEQUENCES"
+    default:
+        return ""
+    }
 }
 
 func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
@@ -712,99 +738,138 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	c.logger.Debug("[OBSERVE] Executed SQL OK. Grant exists")
 
 	cr.SetConditions(xpv1.Available())
-
-	return managed.ExternalObservation{
-		ResourceExists:          true,
-		ResourceUpToDate:        true,
-		ResourceLateInitialized: false,
+ries
+	return managed.ExternalObservation{    setupQueries := []xsql.Query{
+		ResourceExists:          true,ORIZATION DEFAULT"},
+		ResourceUpToDate:        true,        {String: "SET search_path TO public"},
+		ResourceLateInitialized: false,alse)"},
 	}, nil
 }
-
-// Modified Create method with clean SQL logging
-func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.ExternalCreation, error) {
-	cr, ok := mg.(*v1alpha1.Grant)
+  // Execute setup queries first
+// Modified Create method with clean SQL logging    for _, q := range setupQueries {
+func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.ExternalCreation, error) {!= nil {
+	cr, ok := mg.(*v1alpha1.Grant)[CREATE] Failed to execute setup SQL", 
 	if !ok {
-		return managed.ExternalCreation{}, errors.New(errNotGrant)
-	}
+		return managed.ExternalCreation{}, errors.New(errNotGrant)              "error", err)
+	}            return managed.ExternalCreation{}, errors.Wrap(err, "failed to setup execution context")
 
 	// Switch to the correct database if specified
 	if cr.Spec.ForProvider.Database != nil {
-		if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
+		if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {ar queries []xsql.Query
 			return managed.ExternalCreation{}, errors.Wrap(err, "failed to reset search_path")
 		}
 		switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
-		if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {
-			return managed.ExternalCreation{}, errors.Wrap(err, "failed to reset session")
-		}
+		if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
+			return managed.ExternalCreation{}, errors.Wrap(err, "failed to reset session")		c.logger.Debug("[ERROR][CREATE] Failed to build queries", "error", err)
+		}err, errCreateGrant)
 	}
 
-	var queries []xsql.Query
-
-	cr.SetConditions(xpv1.Creating())
-
+	var queries []xsql.Querycation query to check if the ALTER DEFAULT PRIVILEGES worked
+ileges != nil && *cr.Spec.ForProvider.DefaultPrivileges {
+	cr.SetConditions(xpv1.Creating())   verifyQuery := xsql.Query{
+            String: `
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
 		c.logger.Debug("[ERROR][CREATE] Failed to build queries", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
-	}
+	}                    JOIN pg_namespace n ON dp.defaclnamespace = n.oid
 
 	// Log before execution with cleaned SQL
 	for _, q := range queries {
 		c.logger.Debug("[CREATE] Executing SQL", "query", cleanSQLForLog(q.String), "parameters", q.Parameters)
 	}
-
-	if err := c.db.ExecTx(ctx, queries); err != nil {
+interface{}{
+	if err := c.db.ExecTx(ctx, queries); err != nil {   cr.Spec.ForProvider.ForRole,
 		c.logger.Debug("[ERROR][CREATE] Failed to execute SQL", "error", err)
-		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
+		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)       getObjectType(cr.Spec.ForProvider),
 	}
 
-	c.logger.Debug("[CREATE] Executed SQL OK")
+	c.logger.Debug("[CREATE] Executed SQL OK"))
 	return managed.ExternalCreation{}, nil
 }
-
+e execution with cleaned SQL
 // Fix the Delete method to not handle finalizers
-func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
+func (c *external) Delete(ctx context.Context, mg resource.Managed) error {r.Debug("[CREATE] Executing SQL", "query", cleanSQLForLog(q.String), "parameters", q.Parameters)
     cr, ok := mg.(*v1alpha1.Grant)
     if (!ok) {
-        return errors.New(errNotGrant)
+        return errors.New(errNotGrant)tx, queries); err != nil {
     }
 
     c.logger.Debug("[DELETE] Starting deletion", 
         "resource", cr.GetName(),
-        "deletionTimestamp", cr.GetDeletionTimestamp())
+        "deletionTimestamp", cr.GetDeletionTimestamp())	c.logger.Debug("[CREATE] Executed SQL OK")
 
     // If we need to switch database but it doesn't exist, consider the grant already deleted
     if cr.Spec.ForProvider.Database != nil {
-        if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
-            if isDatabaseNotExistError(err) {
-                c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
+        if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {rs
+            if isDatabaseNotExistError(err) {(c *external) Delete(ctx context.Context, mg resource.Managed) error {
+                c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")    cr, ok := mg.(*v1alpha1.Grant)
                 return nil
-            }
-            return errors.Wrap(err, "failed to reset search_path")
+            } errors.New(errNotGrant)
+            return errors.Wrap(err, "failed to reset search_path")   }
         }
         switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
         if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {
-            if isDatabaseNotExistError(err) {
+            if isDatabaseNotExistError(err) {ionTimestamp", cr.GetDeletionTimestamp())
                 c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
-                return nil
-            }
-            return errors.Wrap(err, "failed to reset session")
-        }
-    }
+                return nil/ If we need to switch database but it doesn't exist, consider the grant already deleted
+            }    if cr.Spec.ForProvider.Database != nil {
+            return errors.Wrap(err, "failed to reset session")public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
+        }ExistError(err) {
+    }dering grant already deleted")
 
-    var query xsql.Query
-    if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {
+    var query xsql.Query           }
+    if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {            return errors.Wrap(err, "failed to reset search_path")
         c.logger.Debug("[ERROR][DELETE] Failed to build query", "error", err)
-        return errors.Wrap(err, errRevokeGrant)
-    }
+        return errors.Wrap(err, errRevokeGrant)SSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
+    }chQuery}); err != nil {
 
-    c.logger.Debug("[DELETE] Executing REVOKE", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
-    if err := c.db.Exec(ctx, query); err != nil {
+    c.logger.Debug("[DELETE] Executing REVOKE", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)es not exist, considering grant already deleted")
+    if err := c.db.Exec(ctx, query); err != nil {            return nil
         c.logger.Debug("[ERROR][DELETE] Failed to execute SQL", "error", err)
-        return errors.Wrap(err, errRevokeGrant)
+        return errors.Wrap(err, errRevokeGrant)ed to reset session")
     }
 
     c.logger.Debug("[DELETE] Successfully executed REVOKE")
     return nil
+}   if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {
+        c.logger.Debug("[ERROR][DELETE] Failed to build query", "error", err)
+func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {err, errRevokeGrant)
+    _, ok := mg.(*v1alpha1.Grant)
+    if (!ok) {
+        return managed.ExternalUpdate{}, errors.New(errNotGrant)[DELETE] Executing REVOKE", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
+    }f err := c.db.Exec(ctx, query); err != nil {
+ERROR][DELETE] Failed to execute SQL", "error", err)
+    // Update is a no-op, as permissions are fully revoked and then granted in the Create function,
+    // inside a transaction.
+    c.logger.Debug("[UPDATE] No-op, permissions are handled in Create")
+    return managed.ExternalUpdate{}, nil    c.logger.Debug("[DELETE] Successfully executed REVOKE")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+}           (strings.Contains(errMsg, "does not exist") && strings.Contains(errMsg, "database"))    return strings.Contains(errMsg, errDatabaseDoesNotExist) ||     errMsg := err.Error()    }        return false    if err == nil {func isDatabaseNotExistError(err error) bool {// Add this helper function}    return strings.TrimSpace(cleaned)        }        cleaned = strings.ReplaceAll(cleaned, "  ", " ")    for strings.Contains(cleaned, "  ") {    // Replace multiple spaces with a single space        cleaned = strings.ReplaceAll(cleaned, "\t", " ")    cleaned := strings.ReplaceAll(query, "\n", " ")    // Replace all newlines and tabs with a single spacefunc cleanSQLForLog(query string) string {// Add this helper function}    return nil
 }
 
 func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.ExternalUpdate, error) {
@@ -841,4 +906,18 @@ func isDatabaseNotExistError(err error) bool {
     errMsg := err.Error()
     return strings.Contains(errMsg, errDatabaseDoesNotExist) || 
            (strings.Contains(errMsg, "does not exist") && strings.Contains(errMsg, "database"))
+}
+
+// Add helper function to get object type
+func getObjectType(gp v1alpha1.GrantParameters) string {
+    if gp.OnTables {
+        return "r"
+    }
+    if gp.OnSequences {
+        return "S"
+    }
+    if gp.OnFunctions {
+        return "f"
+    }
+    return ""
 }

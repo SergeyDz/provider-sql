@@ -317,12 +317,13 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 		}
 		return nil
 	case roleLargeObjects:
+		// Modified query to use pg_roles instead of pg_authid
 		q.String = `
 			WITH object_permissions AS (
 				SELECT pglm.oid,
 					COALESCE(array_agg(acl.privilege_type ORDER BY acl.privilege_type), ARRAY[]::text[]) as privileges
 				FROM pg_largeobject_metadata pglm 
-				INNER JOIN pg_authid pga ON pglm.lomowner = pga.oid
+				INNER JOIN pg_roles pga ON pglm.lomowner = pga.oid
 				LEFT JOIN aclexplode(pglm.lomacl) acl ON true
 				LEFT JOIN pg_roles r ON acl.grantee = r.oid AND r.rolname = $2
 				WHERE pga.rolname = $1
@@ -330,7 +331,7 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			)
 			SELECT CASE 
 				WHEN COUNT(*) = 0 THEN true -- No large objects exist, consider it synchronized
-				WHEN COUNT(*) = COUNT(CASE WHEN privileges @> $3::text[] THEN 1 END) THEN true -- All objects have required permissions
+				WHEN COUNT(*) = COUNT(CASE WHEN privileges @> $3::text[] THEN 1 END) THEN true
 				ELSE false -- Some objects exist but don't have required permissions
 			END
 			FROM object_permissions`
@@ -503,7 +504,7 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
                 "DO $$ DECLARE r record; "+
                 "BEGIN "+
                 "FOR r IN SELECT DISTINCT(pglm.oid) as oid FROM pg_largeobject_metadata pglm "+
-                "INNER JOIN pg_authid pga ON pglm.lomowner = pga.oid "+
+                "INNER JOIN pg_roles pga ON pglm.lomowner = pga.oid "+ // Changed from pg_authid to pg_roles
                 "WHERE pga.rolname = '%s' "+
                 "LOOP "+
                 "EXECUTE 'GRANT %s ON LARGE OBJECT ' || r.oid || ' TO %s %s'; "+

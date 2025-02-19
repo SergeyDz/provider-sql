@@ -833,6 +833,6 @@ func isDatabaseNotExistError(err error) bool {
         return false
     }
     errMsg := err.Error()
-    return strings.contains(errMsg, errDatabaseDoesNotExist) || 
+    return strings.Contains(errMsg, errDatabaseDoesNotExist) || 
            (strings.Contains(errMsg, "does not exist") && strings.Contains(errMsg, "database"))
 }

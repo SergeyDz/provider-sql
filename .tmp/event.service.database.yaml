@@ -270,7 +270,7 @@ spec:
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Grant
 metadata:
-  name: app-user-table-privileges
+  name: app-user-public-table-privileges
 spec:
   deletionPolicy: Orphan
   providerConfigRef:
@@ -286,6 +286,30 @@ spec:
       name: event-service-app-user
     schemaRef:
       name: public-schema
+    databaseRef:
+      name: event-service
+    onTables: true
+
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-next-table-privileges
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - SELECT
+      - INSERT
+      - UPDATE
+      - DELETE
+      - REFERENCES
+    roleRef:
+      name: event-service-app-user
+    schemaRef:
+      name: next-schema
     databaseRef:
       name: event-service
     onTables: true

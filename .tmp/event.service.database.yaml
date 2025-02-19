@@ -338,7 +338,7 @@ spec:
 
 ---
 # Sequence privileges for next schema
-apiVersion: postgresql.sql.crossplane.io.v1alpha1
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Grant
 metadata:
   name: app-user-next-sequence-privileges
@@ -360,7 +360,7 @@ spec:
 
 ---
 # Function privileges for public schema
-apiVersion: postgresql.sql.crossplane.io/v1alpha1
+apiVersion: postgresql.sql.crossplane.io.v1alpha1
 kind: Grant
 metadata:
   name: app-user-public-function-privileges

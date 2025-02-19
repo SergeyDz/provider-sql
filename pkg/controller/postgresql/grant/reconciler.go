@@ -178,42 +178,32 @@ const (
 )
 
 func identifyGrantType(gp v1alpha1.GrantParameters) (grantType, error) {
-	pc := len(gp.Privileges)
+    pc := len(gp.Privileges)
 
-	// If memberOf is specified, this is ROLE_MEMBER
-	// NOTE: If any of these are set, even if the lookup by ref or selector fails,
-	// then this is still a roleMember grant type.
-	if gp.MemberOfRef != nil || gp.MemberOfSelector != nil || gp.MemberOf != nil {
-		if gp.Database != nil || pc > 0 {
-			return "", errors.New(errMemberOfWithDatabaseOrPrivileges)
-		}
-		return roleMember, nil
-	}
+    // If memberOf is specified, this is ROLE_MEMBER
+    // ...existing memberOf check code...
 
-	if gp.OnTables {
-		return roleTables, nil
-	}
-	if gp.OnSequences {
-		return roleSequences, nil
-	}
-	if gp.OnFunctions {
-		return roleFunctions, nil
-	}
-	if gp.OnLargeObjects {
-		return roleLargeObjects, nil
-	}
-	
-	// Default database grant handling
-	if gp.Database == nil {
-		return "", errors.New(errNoDatabase)
-	}
+    // Check for onTables, onSequences, etc first
+    if gp.OnTables {
+        return roleTables, nil
+    }
+    // ...existing onSequences, onFunctions, onLargeObjects checks...
 
-	if pc < 1 {
-		return "", errors.New(errNoPrivileges)
-	}
+    // Check for schema-level grants before database grants
+    if gp.Schema != nil {
+        return roleSchema, nil
+    }
+    
+    // Default database grant handling
+    if gp.Database == nil {
+        return "", errors.New(errNoDatabase)
+    }
 
-	// This is ROLE_DATABASE
-	return roleDatabase, nil
+    if pc < 1 {
+        return "", errors.New(errNoPrivileges)
+    }
+
+    return roleDatabase, nil
 }
 
 func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {

@@ -1,15 +1,17 @@
 #!/bin/bash
 
-MICROSERVICES=("event_service" "bankapi" "apigw" "lp" "bi" "erp" "excel" "pyft")
-KIP_SUFFIXES=("kip0" "kip1" "kip2" "kip3" "kip4" "kipx" "kipy" "kip5" "kip6" "kip7" "kip8" "kip9" "kip11")
+MICROSERVICES=("event_service" "bankapi")
+KIP_SUFFIXES=("kip0" "kip1")
 OUTPUT_DIR="../.tmp/kip-databases"
 
 mkdir -p "$OUTPUT_DIR"
 
 for ms in "${MICROSERVICES[@]}"; do
     for kip in "${KIP_SUFFIXES[@]}"; do
-        K8S_NAME="${ms//_/-}-${kip}"
+        # Database name uses underscores
         DB_NAME="${ms}_${kip}"
+        # K8s resource name uses hyphens (convert underscores to hyphens)
+        K8S_NAME="${ms//_/-}-${kip}"
         FILENAME="${OUTPUT_DIR}/${DB_NAME}.yaml"
         
         cat > "$FILENAME" << EOL
@@ -21,8 +23,8 @@ metadata:
   annotations:
     crossplane.io/external-name: ${DB_NAME}
   labels:
-    crossplane.io/claim-name: postgresdb-${ms}
-    crossplane.io/claim-namespace: default
+    crossplane.io/claim-name: postgresdb-${ms//_/-}
+    crossplane.io/claim-namespace: ${ms//_/-}
 spec:
   deletionPolicy: Delete
   forProvider:
@@ -46,8 +48,8 @@ metadata:
   annotations:
     crossplane.io/external-name: ${DB_NAME}_user
   labels:
-    crossplane.io/claim-name: postgresdb-${ms}
-    crossplane.io/claim-namespace: default
+    crossplane.io/claim-name: postgresdb-${ms//_/-}
+    crossplane.io/claim-namespace: ${ms//_/-}
 spec:
   deletionPolicy: Orphan
   forProvider:
@@ -55,7 +57,7 @@ spec:
     passwordSecretRef:
       key: password
       name: ${K8S_NAME}-user
-      namespace: default
+      namespace: ${ms//_/-}
     privileges:
       bypassRls: false
       createDb: false
@@ -79,8 +81,8 @@ metadata:
   annotations:
     crossplane.io/external-name: ${DB_NAME}_app_user
   labels:
-    crossplane.io/claim-name: postgresdb-${ms}
-    crossplane.io/claim-namespace: default
+    crossplane.io/claim-name: postgresdb-${ms//_/-}
+    crossplane.io/claim-namespace: ${ms//_/-}
 spec:
   deletionPolicy: Orphan
   forProvider:
@@ -88,7 +90,7 @@ spec:
     passwordSecretRef:
       key: password
       name: ${K8S_NAME}-app-user
-      namespace: default
+      namespace: ${ms//_/-}
     privileges:
       bypassRls: false
       createDb: false
@@ -109,7 +111,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: ${K8S_NAME}-user
-  namespace: default
+  namespace: ${ms//_/-}
 type: Opaque
 data:
   password: aGVsbG93b3JsZA==
@@ -118,7 +120,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: ${K8S_NAME}-app-user
-  namespace: default
+  namespace: ${ms//_/-}
 type: Opaque
 data:
   password: aGVsbG93b3JsZA==
@@ -305,7 +307,7 @@ spec:
       name: ${K8S_NAME}
     onSequences: true
 ---
-apiVersion: postgresql.sql.crossplane.io/v1alpha1
+apiVersion: postgresql.sql.crossplane.io.v1alpha1
 kind: Grant
 metadata:
   name: ${K8S_NAME}-next-sequence-privileges

@@ -290,7 +290,7 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			}
 
 		if gp.DefaultPrivileges != nil && *gp.DefaultPrivileges && gp.ForRole != nil {
-			// Query to check default privileges
+			 // Fixed query to check default privileges without using aggregate in WHERE
 			q.String = `
 				SELECT EXISTS(
 					SELECT 1 
@@ -301,11 +301,17 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 					AND r.rolname = $2
 					AND a.defaclobjtype = $3
 					AND EXISTS (
-						SELECT 1
-						FROM aclexplode(a.defaclacl) acl
-						JOIN pg_roles g ON g.oid = acl.grantee
-						WHERE g.rolname = $4
-						AND array_agg(acl.privilege_type ORDER BY acl.privilege_type) @> $5::text[]
+						WITH privs AS (
+							SELECT privilege_type
+							FROM aclexplode(a.defaclacl) acl
+							JOIN pg_roles g ON g.oid = acl.grantee
+							WHERE g.rolname = $4
+						)
+						SELECT 1 WHERE NOT EXISTS (
+							SELECT unnest($5::text[]) AS expected_priv
+							EXCEPT
+							SELECT privilege_type FROM privs
+						)
 					)
 				)`
 

@@ -138,9 +138,14 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		testDb := c.newDB(s.Data, *cr.Spec.ForProvider.Database, clients.ToString(pc.Spec.SSLMode))
 		err := testDb.Exec(ctx, xsql.Query{String: "SELECT 1"})
 		if err != nil && isDatabaseNotExistError(err) {
-			c.logger.Debug("[CONNECT] Target database does not exist, connecting to postgres database")
+			c.logger.Debug("[CONNECT] Target database does not exist, connecting to postgres database", 
+                "database", *cr.Spec.ForProvider.Database,
+                "error", err)
 			targetDB = defaultPostgresDB
 		} else if err != nil {
+			c.logger.Debug("[CONNECT] Failed to connect to database", 
+                "database", *cr.Spec.ForProvider.Database,
+                "error", err)
 			return nil, errors.Wrap(err, "cannot connect to database")
 		} else {
 			targetDB = *cr.Spec.ForProvider.Database
@@ -483,51 +488,59 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
 	return errors.New(errUnknownGrant)
 }
 
+// Delete the duplicate deleteGrantQuery function and keep only this version
 func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
-	gt, err := identifyGrantType(gp)
-	if err != nil {
-		return err
-	}
+    gt, err := identifyGrantType(gp)
+    if err != nil {
+        return err
+    }
 
-	ro := pq.QuoteIdentifier(*gp.Role)
+    ro := pq.QuoteIdentifier(*gp.Role)
 
-	switch gt {
-	case roleMember:
-		q.String = fmt.Sprintf("REVOKE %s FROM %s",
-			pq.QuoteIdentifier(*gp.MemberOf),
-			ro,
-		)
-		return nil
-	case roleDatabase:
-		q.String = fmt.Sprintf("REVOKE %s ON DATABASE %s FROM %s",
-			strings.Join(gp.Privileges.ToStringSlice(), ","),
-			pq.QuoteIdentifier(*gp.Database),
-			ro,
-		)
-		return nil
-	case roleTables, roleSequences, roleFunctions:
-		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
-		schema := pq.QuoteIdentifier(*gp.Schema)
-		
-		var objType string
-		switch gt {
-		case roleTables:
-			objType = "TABLES"
-		case roleSequences:
-			objType = "SEQUENCES"
-		case roleFunctions:
-			objType = "FUNCTIONS"
-		}
-		
-		q.String = fmt.Sprintf("REVOKE %s ON ALL %s IN SCHEMA %s FROM %s",
-			sp,
-			objType,
-			schema,
-			ro,
-		)
-		return nil
-	}
-	return errors.New(errUnknownGrant)
+    switch gt {
+    case roleMember:
+        q.String = fmt.Sprintf("REVOKE %s FROM %s",
+            pq.QuoteIdentifier(*gp.MemberOf),
+            ro,
+        )
+        return nil
+    case roleDatabase:
+        q.String = fmt.Sprintf("REVOKE %s ON DATABASE %s FROM %s",
+            strings.Join(gp.Privileges.ToStringSlice(), ","),
+            pq.QuoteIdentifier(*gp.Database),
+            ro,
+        )
+        return nil
+    case roleTables, roleSequences, roleFunctions:
+        sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+        
+        // Make sure we have a schema
+        if gp.Schema == nil {
+            return errors.New("schema is required")
+        }
+        
+        schema := pq.QuoteIdentifier(*gp.Schema)
+        
+        var objType string
+        switch gt {
+        case roleTables:
+            objType = "TABLES"
+        case roleSequences:
+            objType = "SEQUENCES"
+        case roleFunctions:
+            objType = "FUNCTIONS"
+        }
+
+        // First revoke on existing objects
+        q.String = fmt.Sprintf("REVOKE %s ON ALL %s IN SCHEMA %s FROM %s",
+            sp,
+            objType,
+            schema,
+            ro,
+        )
+        return nil
+    }
+    return errors.New(errUnknownGrant)
 }
 
 // Modified Observe method with clean SQL logging

@@ -718,7 +718,9 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		return managed.ExternalObservation{}, err
 	}
 	if err := selectGrantQuery(gp, &query); err != nil {
-		c.logger.Debug("[error][observe] Failed to build query", "error", err)
+		c.logger.Info("[error][observe] " + formatError("observe", "build query", err),
+            "grant", cr.GetName(),
+            "type", string(gt))
 		return managed.ExternalObservation{}, err
 	}
 
@@ -735,7 +737,10 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	exists := false
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
-		c.logger.Debug("[error][observe] Failed to execute SQL", "error", err)
+		c.logger.Info("[error][observe] " + formatError("observe", "execute query", err),
+            "grant", cr.GetName(),
+            "type", string(gt),
+            "database", getLoggableDatabase(cr.Spec.ForProvider.Database))
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
 
@@ -782,7 +787,9 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 		return managed.ExternalCreation{}, err
 	}
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
-		c.logger.Debug("[error][CREATE] Failed to build queries", "error", err)
+		c.logger.Info("[error][create] " + formatError("create", "build queries", err),
+            "grant", cr.GetName(),
+            "type", string(gt))
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
@@ -800,7 +807,10 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	if err := c.db.ExecTx(ctx, queries); err != nil {
-		c.logger.Debug("[error][CREATE] Failed to execute SQL", "error", err)
+		c.logger.Info("[error][create] " + formatError("create", "execute queries", err),
+            "grant", cr.GetName(),
+            "type", string(gt),
+            "database", getLoggableDatabase(cr.Spec.ForProvider.Database))
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
@@ -847,7 +857,9 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
         return err
     }
     if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {
-        c.logger.Debug("[error][DELETE] Failed to build query", "error", err)
+        c.logger.Info("[error][delete] " + formatError("delete", "build query", err),
+            "grant", cr.GetName(),
+            "type", string(gt))
         return errors.Wrap(err, errRevokeGrant)
     }
 
@@ -861,7 +873,10 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
         "parameters", query.Parameters,
     )
     if err := c.db.Exec(ctx, query); err != nil {
-        c.logger.Debug("[error][DELETE] Failed to execute SQL", "error", err)
+        c.logger.Info("[error][delete] " + formatError("delete", "execute query", err),
+            "grant", cr.GetName(),
+            "type", string(gt),
+            "database", getLoggableDatabase(cr.Spec.ForProvider.Database))
         return errors.Wrap(err, errRevokeGrant)
     }
 
@@ -932,4 +947,9 @@ func getLoggableSchema(schema *string) string {
         return "<none>"
     }
     return *schema
+}
+
+// Add helper function for error message formatting
+func formatError(operation, action string, err error) string {
+    return fmt.Sprintf("Failed to %s: %v", action, err)
 }

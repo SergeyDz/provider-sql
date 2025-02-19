@@ -301,10 +301,14 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
                     WHERE n.nspname = $1 
                     AND r.rolname = $2
                     AND a.defaclobjtype = $3
-                    AND array_agg(DISTINCT acl.privilege_type ORDER BY acl.privilege_type) @> $5::text[]
-                    FROM aclexplode(a.defaclacl) acl
-                    WHERE acl.grantee = g.oid
-                    GROUP BY n.nspname, r.rolname, a.defaclobjtype
+                    AND EXISTS (
+                        SELECT 1
+                        WHERE (
+                            SELECT array_agg(privilege_type ORDER BY privilege_type)
+                            FROM aclexplode(a.defaclacl) acl
+                            WHERE acl.grantee = g.oid
+                        ) @> $5::text[]
+                    )
                 )`
 
 			q.Parameters = []interface{}{

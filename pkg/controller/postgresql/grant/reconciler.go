@@ -138,12 +138,12 @@ func (c *connector) Connect(ctx context.Context, mg resource.Managed) (managed.E
 		testDb := c.newDB(s.Data, *cr.Spec.ForProvider.Database, clients.ToString(pc.Spec.SSLMode))
 		err := testDb.Exec(ctx, xsql.Query{String: "SELECT 1"})
 		if err != nil && isDatabaseNotExistError(err) {
-			c.logger.Debug("[CONNECT] Target database does not exist, connecting to postgres database", 
+			c.logger.Debug("[connect] Target database does not exist, connecting to postgres database", 
                 "database", *cr.Spec.ForProvider.Database,
                 "error", err)
 			targetDB = defaultPostgresDB
 		} else if err != nil {
-			c.logger.Debug("[CONNECT] Failed to connect to database", 
+			c.logger.Debug("[connect] Failed to connect to database", 
                 "database", *cr.Spec.ForProvider.Database,
                 "error", err)
 			return nil, errors.Wrap(err, "cannot connect to database")
@@ -699,7 +699,7 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 		if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
 			if isDatabaseNotExistError(err) {
 				// If database doesn't exist, treat as resource doesn't exist
-				c.logger.Debug("[OBSERVE] Database does not exist, considering grant as non-existent")
+				c.logger.Debug("[observe] Database does not exist, considering grant as non-existent")
 				return managed.ExternalObservation{ResourceExists: false}, nil
 			}
 			return managed.ExternalObservation{}, errors.Wrap(err, "failed to reset search_path")
@@ -712,26 +712,39 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 
 	gp := cr.Spec.ForProvider
 	var query xsql.Query
+	gt, err := identifyGrantType(gp)
+	if err != nil {
+		c.logger.Debug("[error][observe] Failed to identify grant type", "error", err)
+		return managed.ExternalObservation{}, err
+	}
 	if err := selectGrantQuery(gp, &query); err != nil {
-		c.logger.Debug("[ERROR][OBSERVE] Failed to build query", "error", err)
+		c.logger.Debug("[error][observe] Failed to build query", "error", err)
 		return managed.ExternalObservation{}, err
 	}
 
 	// Log before execution with cleaned SQL
-	c.logger.Debug("[OBSERVE] Executing SQL", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
+	c.logger.Debug("[observe]",
+        "grant", cr.GetName(),
+        "type", string(gt),
+        "database", getLoggableDatabase(cr.Spec.ForProvider.Database),
+        "schema", getLoggableSchema(cr.Spec.ForProvider.Schema),
+        "role", *cr.Spec.ForProvider.Role,
+        "sql", cleanSQLForLog(query.String),
+        "parameters", query.Parameters,
+    )
 
 	exists := false
 	if err := c.db.Scan(ctx, query, &exists); err != nil {
-		c.logger.Debug("[OBSERVE] Failed to execute SQL", "error", err)
+		c.logger.Debug("[error][observe] Failed to execute SQL", "error", err)
 		return managed.ExternalObservation{}, errors.Wrap(err, errSelectGrant)
 	}
 
 	if !exists {
-		c.logger.Debug("[WARN][OBSERVE] Executed SQL: Grant does not exist")
+		c.logger.Debug("[warn][observe] Executed SQL: Grant does not exist")
 		return managed.ExternalObservation{ResourceExists: false}, nil
 	}
 
-	c.logger.Debug("[OBSERVE] Executed SQL OK. Grant exists")
+	c.logger.Debug("[observe] Executed SQL OK. Grant exists")
 
 	cr.SetConditions(xpv1.Available())
 
@@ -761,18 +774,31 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	}
 
 	var queries []xsql.Query
+	gt, err := identifyGrantType(cr.Spec.ForProvider)
+	if err != nil {
+		c.logger.Debug("[error][CREATE] Failed to identify grant type", "error", err)
+		return managed.ExternalCreation{}, err
+	}
 	if err := createGrantQueries(cr.Spec.ForProvider, &queries); err != nil {
-		c.logger.Debug("[ERROR][CREATE] Failed to build queries", "error", err)
+		c.logger.Debug("[error][CREATE] Failed to build queries", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
 	// Log before execution with cleaned SQL
 	for _, q := range queries {
-		c.logger.Debug("[CREATE] Executing SQL", "query", cleanSQLForLog(q.String), "parameters", q.Parameters)
+		c.logger.Debug("[CREATE]",
+            "grant", cr.GetName(),
+            "type", string(gt),
+            "database", getLoggableDatabase(cr.Spec.ForProvider.Database),
+            "schema", getLoggableSchema(cr.Spec.ForProvider.Schema),
+            "role", *cr.Spec.ForProvider.Role,
+            "sql", cleanSQLForLog(q.String),
+            "parameters", q.Parameters,
+        )
 	}
 
 	if err := c.db.ExecTx(ctx, queries); err != nil {
-		c.logger.Debug("[ERROR][CREATE] Failed to execute SQL", "error", err)
+		c.logger.Debug("[error][CREATE] Failed to execute SQL", "error", err)
 		return managed.ExternalCreation{}, errors.Wrap(err, errCreateGrant)
 	}
 
@@ -811,14 +837,27 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
     }
 
     var query xsql.Query
+    gt, err := identifyGrantType(cr.Spec.ForProvider)
+    if err != nil {
+        c.logger.Debug("[error][DELETE] Failed to identify grant type", "error", err)
+        return err
+    }
     if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {
-        c.logger.Debug("[ERROR][DELETE] Failed to build query", "error", err)
+        c.logger.Debug("[error][DELETE] Failed to build query", "error", err)
         return errors.Wrap(err, errRevokeGrant)
     }
 
-    c.logger.Debug("[DELETE] Executing REVOKE", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
+    c.logger.Debug("[DELETE] Executing REVOKE",
+        "grant", cr.GetName(),
+        "type", string(gt),
+        "database", getLoggableDatabase(cr.Spec.ForProvider.Database),
+        "schema", getLoggableSchema(cr.Spec.ForProvider.Schema),
+        "role", *cr.Spec.ForProvider.Role,
+        "sql", cleanSQLForLog(query.String),
+        "parameters", query.Parameters,
+    )
     if err := c.db.Exec(ctx, query); err != nil {
-        c.logger.Debug("[ERROR][DELETE] Failed to execute SQL", "error", err)
+        c.logger.Debug("[error][DELETE] Failed to execute SQL", "error", err)
         return errors.Wrap(err, errRevokeGrant)
     }
 
@@ -874,4 +913,19 @@ func getObjectType(gp v1alpha1.GrantParameters) string {
         return "f"
     }
     return ""
+}
+
+// Add helper functions for logging
+func getLoggableDatabase(db *string) string {
+    if db == nil {
+        return "<none>"
+    }
+    return *db
+}
+
+func getLoggableSchema(schema *string) string {
+    if schema == nil {
+        return "<none>"
+    }
+    return *schema
 }

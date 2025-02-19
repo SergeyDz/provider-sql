@@ -194,6 +194,14 @@ type GrantParameters struct {
 	// +immutable
 	// +optional
 	SchemaSelector *xpv1.Selector `json:"schemaSelector,omitempty"`
+
+	// DefaultPrivileges indicates if this grant should set default privileges
+	// +optional
+	DefaultPrivileges *bool `json:"defaultPrivileges,omitempty"`
+
+	// ForRole specifies the role whose future objects will have the privileges granted
+	// +optional
+	ForRole *string `json:"forRole,omitempty"`
 }
 
 // A GrantStatus represents the observed state of a Grant.

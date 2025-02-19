@@ -376,6 +376,12 @@ spec:
                           type: string
                         type: object
                     type: object
+                  defaultPrivileges:
+                    description: Indicates if this grant should set default privileges
+                    type: boolean
+                  forRole:
+                    description: Specifies the role whose future objects will have the privileges granted
+                    type: string
                   withOption:
                     description: |-
                       WithOption allows an option to be set on the grant.

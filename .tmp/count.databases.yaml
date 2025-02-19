@@ -187,7 +187,7 @@ spec:
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Schema
 metadata:
-  name: event-service-public-schema
+  name: public-schema
   annotations:
     crossplane.io/external-name: public
   labels:
@@ -210,7 +210,7 @@ spec:
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Schema
 metadata:
-  name: event-database-next-schema
+  name: next-schema
   annotations:
     crossplane.io/external-name: next
   labels:
@@ -244,7 +244,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-service-public-schema  
+      name: public-schema  
     databaseRef:
       name: event-service
 ---
@@ -262,7 +262,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-database-next-schema  
+      name: next-schema  
     databaseRef:
       name: event-service
 ---
@@ -285,7 +285,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-service-public-schema
+      name: public-schema
     databaseRef:
       name: event-service
     onTables: true
@@ -309,7 +309,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-database-next-schema
+      name: next-schema
     databaseRef:
       name: event-service
     onTables: true
@@ -331,7 +331,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-service-public-schema
+      name: public-schema
     databaseRef:
       name: event-service
     onSequences: true
@@ -353,7 +353,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-database-next-schema
+      name: next-schema
     databaseRef:
       name: event-service
     onSequences: true
@@ -374,7 +374,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-service-public-schema
+      name: public-schema
     databaseRef:
       name: event-service
     onFunctions: true
@@ -395,7 +395,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: event-database-next-schema
+      name: next-schema
     databaseRef:
       name: event-service
     onFunctions: true
@@ -418,53 +418,3 @@ spec:
       name: event-service-app-user
     onLargeObjects: true
     largeObjectOwner: event_service_user
-
----
-# Default sequence privileges
-apiVersion: postgresql.sql.crossplane.io/v1alpha1
-kind: Grant
-metadata:
-  name: app-user-public-default-sequence-privileges
-spec:
-  deletionPolicy: Orphan
-  providerConfigRef:
-    name: default-sql-postgres-provider-config
-  forProvider:
-    privileges:
-      - SELECT
-    roleRef:
-      name: event-service-app-user
-    schemaRef:
-      name: event-service-public-schema
-    databaseRef:
-      name: event-service
-    onSequences: true
-    defaultPrivileges: true
-    forRole: event_service_user
-
----
-# Default table privileges
-apiVersion: postgresql.sql.crossplane.io/v1alpha1
-kind: Grant
-metadata:
-  name: app-user-public-default-table-privileges
-spec:
-  deletionPolicy: Orphan
-  providerConfigRef:
-    name: default-sql-postgres-provider-config
-  forProvider:
-    privileges:
-      - SELECT
-      - INSERT
-      - UPDATE
-      - DELETE
-      - REFERENCES
-    roleRef:
-      name: event-service-app-user
-    schemaRef:
-      name: event-service-public-schema
-    databaseRef:
-      name: event-service
-    onTables: true
-    defaultPrivileges: true
-    forRole: event_service_user

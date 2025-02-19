@@ -457,6 +457,20 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
 		sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
 		schema := pq.QuoteIdentifier(*gp.Schema)
 		
+		if gp.DefaultPrivileges != nil && *gp.DefaultPrivileges && gp.ForRole != nil {
+			forRole := pq.QuoteIdentifier(*gp.ForRole)
+			*ql = append(*ql,
+				xsql.Query{String: fmt.Sprintf("ALTER DEFAULT PRIVILEGES FOR ROLE %s IN SCHEMA %s GRANT %s ON SEQUENCES TO %s %s",
+					forRole,
+					schema,
+					sp,
+					ro,
+					withOption(gp.WithOption),
+				)},
+			)
+			return nil
+		}
+		
 		*ql = append(*ql,
 			xsql.Query{String: fmt.Sprintf("REVOKE %s ON ALL SEQUENCES IN SCHEMA %s FROM %s",
 				sp,

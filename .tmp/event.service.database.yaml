@@ -194,6 +194,7 @@ metadata:
     crossplane.io/claim-name: postgresdb-bankapi
     crossplane.io/claim-namespace: event-service
 spec:
+  deletionPolicy: Orphan
   forProvider:
     database: event_service
     databaseRef:
@@ -211,6 +212,7 @@ spec:
 # metadata:
 #   name: app-user-schema-usage
 # spec:
+#   deletionPolicy: Orphan
 #   providerConfigRef:
 #     name: default-sql-postgres-provider-config
 #   forProvider:
@@ -229,6 +231,7 @@ kind: Grant
 metadata:
   name: app-user-table-privileges
 spec:
+  deletionPolicy: Orphan
   providerConfigRef:
     name: default-sql-postgres-provider-config
   forProvider:

@@ -360,7 +360,7 @@ spec:
 
 ---
 # Function privileges for public schema
-apiVersion: postgresql.sql.crossplane.io.v1alpha1
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Grant
 metadata:
   name: app-user-public-function-privileges
@@ -381,7 +381,7 @@ spec:
 
 ---
 # Function privileges for next schema
-apiVersion: postgresql.sql.crossplane.io.v1alpha1
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Grant
 metadata:
   name: app-user-next-function-privileges
@@ -402,7 +402,7 @@ spec:
 
 ---
 # Large object privileges (schema-independent)
-apiVersion: postgresql.sql.crossplane.io.v1alpha1
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: Grant
 metadata:
   name: app-user-large-object-privileges

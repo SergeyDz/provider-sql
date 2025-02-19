@@ -181,22 +181,38 @@ func identifyGrantType(gp v1alpha1.GrantParameters) (grantType, error) {
     pc := len(gp.Privileges)
 
     // If memberOf is specified, this is ROLE_MEMBER
-    // ...existing memberOf check code...
+    if gp.MemberOfRef != nil || gp.MemberOfSelector != nil || gp.MemberOf != nil {
+        if gp.Database != nil || pc > 0 {
+            return "", errors.New(errMemberOfWithDatabaseOrPrivileges)
+        }
+        return roleMember, nil
+    }
 
     // Check for onTables, onSequences, etc first
     if gp.OnTables {
         return roleTables, nil
     }
-    // ...existing onSequences, onFunctions, onLargeObjects checks...
+    if gp.OnSequences {
+        return roleSequences, nil
+    }
+    if gp.OnFunctions {
+        return roleFunctions, nil
+    }
+    if gp.OnLargeObjects {
+        return roleLargeObjects, nil
+    }
 
-    // Check for schema-level grants before database grants
+    // Check for schema-level grants
     if gp.Schema != nil {
         return roleSchema, nil
     }
     
-    // Default database grant handling
+    // For database grants, we need both database and privileges
     if gp.Database == nil {
-        return "", errors.New(errNoDatabase)
+        // Only return error if we're not handling a memberOf grant
+        if pc > 0 {
+            return "", errors.New(errNoDatabase)
+        }
     }
 
     if pc < 1 {

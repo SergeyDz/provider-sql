@@ -282,14 +282,50 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 	return managed.ExternalUpdate{}, nil
 }
 
-func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
-	cr, ok := mg.(*v1alpha1.Database)
-	if !ok {
-		return errors.New(errNotDatabase)
-	}
+// Add helper function for ownership transfer
+func generateDeleteQueries(dbname string) []xsql.Query {
+    // Quote the database name for safety
+    quoted := pq.QuoteIdentifier(dbname)
+    
+    return []xsql.Query{
+        // First disconnect all users
+        {String: fmt.Sprintf(`
+            SELECT pg_terminate_backend(pid) 
+            FROM pg_stat_activity 
+            WHERE datname = %s AND pid <> pg_backend_pid()`,
+            pq.QuoteLiteral(dbname)),
+        },
+        // Then alter ownership to current user
+        {String: fmt.Sprintf("ALTER DATABASE %s OWNER TO CURRENT_USER", quoted)},
+        // Finally drop the database
+        {String: fmt.Sprintf("DROP DATABASE %s", quoted)},
+    }
+}
 
-	err := c.db.Exec(ctx, xsql.Query{String: "DROP DATABASE IF EXISTS " + pq.QuoteIdentifier(meta.GetExternalName(cr))})
-	return errors.Wrap(err, errDropDB)
+func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
+    cr, ok := mg.(*v1alpha1.Database)
+    if !ok {
+        return errors.New(errNotDatabase)
+    }
+
+    cr.Status.SetConditions(xpv1.Deleting())
+
+    queries := generateDeleteQueries(meta.GetExternalName(cr))
+    for _, q := range queries {
+        if err := c.db.Exec(ctx, q); err != nil {
+            c.logger.Info("[error][delete] Failed to execute deletion step",
+                "database", meta.GetExternalName(cr),
+                "sql", cleanSQLForLog(q.String),
+                "error", err)
+            // Continue with other queries even if one fails
+            continue
+        }
+        c.logger.Info("[delete] Successfully executed step",
+            "database", meta.GetExternalName(cr),
+            "sql", cleanSQLForLog(q.String))
+    }
+
+    return nil
 }
 
 func upToDate(observed, desired v1alpha1.DatabaseParameters) bool {

@@ -335,6 +335,31 @@ func selectGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
 			pq.Array(gp.Privileges.ToStringSlice()),
 		}
 		return nil
+	case roleSchema:
+        // Query to check if schema permissions exist
+        q.String = `
+            WITH schema_permissions AS (
+                SELECT n.nspname,
+                    COALESCE(array_agg(acl.privilege_type ORDER BY acl.privilege_type), ARRAY[]::text[]) as privileges
+                FROM pg_namespace n
+                LEFT JOIN aclexplode(n.nspacl) acl ON true
+                LEFT JOIN pg_roles r ON acl.grantee = r.oid AND r.rolname = $2
+                WHERE n.nspname = $1
+                GROUP BY n.nspname
+            )
+            SELECT CASE 
+                WHEN COUNT(*) = 0 THEN false
+                WHEN COUNT(*) = COUNT(CASE WHEN privileges @> $3::text[] THEN 1 END) THEN true
+                ELSE false
+            END
+            FROM schema_permissions`
+
+        q.Parameters = []interface{}{
+            gp.Schema,
+            gp.Role,
+            pq.Array(gp.Privileges.ToStringSlice()),
+        }
+        return nil
 	}
 	return errors.New(errUnknownGrant)
 }
@@ -484,6 +509,28 @@ func createGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query) error { /
             )},
         )
         return nil
+	case roleSchema:
+        if gp.Schema == nil || gp.Role == nil || len(gp.Privileges) < 1 {
+            return errors.Errorf(errInvalidParams, roleSchema)
+        }
+
+        sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+        schema := pq.QuoteIdentifier(*gp.Schema)
+
+        *ql = append(*ql,
+            xsql.Query{String: fmt.Sprintf("REVOKE %s ON SCHEMA %s FROM %s",
+                sp,
+                schema,
+                ro,
+            )},
+            xsql.Query{String: fmt.Sprintf("GRANT %s ON SCHEMA %s TO %s %s",
+                sp,
+                schema,
+                ro,
+                withOption(gp.WithOption),
+            )},
+        )
+        return nil
 	}
 	return errors.New(errUnknownGrant)
 }
@@ -535,6 +582,20 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
         q.String = fmt.Sprintf("REVOKE %s ON ALL %s IN SCHEMA %s FROM %s",
             sp,
             objType,
+            schema,
+            ro,
+        )
+        return nil
+    case roleSchema:
+        if gp.Schema == nil {
+            return errors.New("schema is required")
+        }
+        
+        sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
+        schema := pq.QuoteIdentifier(*gp.Schema)
+
+        q.String = fmt.Sprintf("REVOKE %s ON SCHEMA %s FROM %s",
+            sp,
             schema,
             ro,
         )

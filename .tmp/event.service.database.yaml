@@ -205,25 +205,66 @@ spec:
   providerConfigRef:
     name: default-sql-postgres-provider-config
 
+--- 
+
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Schema
+metadata:
+  name: next-schema
+  annotations:
+    crossplane.io/external-name: next
+  labels:
+    crossplane.io/claim-name: postgresdb-bankapi
+    crossplane.io/claim-namespace: event-service
+spec:
+  deletionPolicy: Orphan
+  forProvider:
+    database: event_service
+    databaseRef:
+      name: event-service
+    role: event_service_user
+    roleRef:
+      name: event-service-user
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+
 ---
 # 3. Grant schema usage to app user
-# apiVersion: postgresql.sql.crossplane.io/v1alpha1
-# kind: Grant
-# metadata:
-#   name: app-user-schema-usage
-# spec:
-#   deletionPolicy: Orphan
-#   providerConfigRef:
-#     name: default-sql-postgres-provider-config
-#   forProvider:
-#     privileges:
-#       - USAGE
-#     roleRef:
-#       name: event-service-app-user
-#     schemaRef:
-#       name: public-schema  # Changed to reference the Schema resource
-#     databaseRef:
-#       name: event-service
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-schema-usage
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+    roleRef:
+      name: event-service-app-user
+    schemaRef:
+      name: public-schema  
+    databaseRef:
+      name: event-service
+---
+apiVersion: postgresql.sql.crossplane.io/v1alpha1
+kind: Grant
+metadata:
+  name: app-user-next-schema-usage
+spec:
+  deletionPolicy: Orphan
+  providerConfigRef:
+    name: default-sql-postgres-provider-config
+  forProvider:
+    privileges:
+      - USAGE
+    roleRef:
+      name: event-service-app-user
+    schemaRef:
+      name: next-schema  
+    databaseRef:
+      name: event-service
 ---
 # 4. Grant table privileges to app user
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
@@ -244,7 +285,7 @@ spec:
     roleRef:
       name: event-service-app-user
     schemaRef:
-      name: public-schema  # Changed to reference the Schema resource
+      name: public-schema
     databaseRef:
       name: event-service
     onTables: true

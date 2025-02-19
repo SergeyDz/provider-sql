@@ -644,7 +644,7 @@ func (c *external) Create(ctx context.Context, mg resource.Managed) (managed.Ext
 	return managed.ExternalCreation{}, nil
 }
 
-// Modify Delete method to add finalizer handling checks
+// Fix the Delete method to properly execute REVOKE query
 func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
     cr, ok := mg.(*v1alpha1.Grant)
     if (!ok) {
@@ -661,19 +661,37 @@ func (c *external) Delete(ctx context.Context, mg resource.Managed) error {
         if err := c.db.Exec(ctx, xsql.Query{String: fmt.Sprintf("SELECT set_config('search_path', 'public', false); SELECT pg_catalog.set_config('statement_timeout', '0', false)")}); err != nil {
             if isDatabaseNotExistError(err) {
                 c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
-                // Ensure we remove finalizer
                 cr.SetFinalizers(nil)
                 return nil
             }
             return errors.Wrap(err, "failed to reset search_path")
         }
-        // ...rest of database switching code...
+        switchQuery := fmt.Sprintf("SET SESSION AUTHORIZATION DEFAULT; SELECT pg_catalog.set_config('statement_timeout', '0', false); SET search_path TO public")
+        if err := c.db.Exec(ctx, xsql.Query{String: switchQuery}); err != nil {
+            if isDatabaseNotExistError(err) {
+                c.logger.Debug("[DELETE] Database does not exist, considering grant already deleted")
+                cr.SetFinalizers(nil)
+                return nil
+            }
+            return errors.Wrap(err, "failed to reset session")
+        }
     }
 
-    // ...rest of delete implementation...
+    var query xsql.Query
+    if err := deleteGrantQuery(cr.Spec.ForProvider, &query); err != nil {
+        c.logger.Debug("[ERROR][DELETE] Failed to build query", "error", err)
+        return errors.Wrap(err, errRevokeGrant)
+    }
 
-    // After successful deletion
-    c.logger.Debug("[DELETE] Successfully deleted grant, removing finalizer")
+    // Log before execution with cleaned SQL
+    c.logger.Debug("[DELETE] Executing REVOKE", "query", cleanSQLForLog(query.String), "parameters", query.Parameters)
+
+    if err := c.db.Exec(ctx, query); err != nil {
+        c.logger.Debug("[ERROR][DELETE] Failed to execute SQL", "error", err)
+        return errors.Wrap(err, errRevokeGrant)
+    }
+
+    c.logger.Debug("[DELETE] Successfully executed REVOKE, removing finalizer")
     cr.SetFinalizers(nil)
     
     return nil
